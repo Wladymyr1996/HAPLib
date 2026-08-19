@@ -1,6 +1,6 @@
 #include <HAPRandom/HAPRandom.hpp>
 
-#include <HLib.h>
+#include <HCoreLib.h>
 
 #if IS_MCU
 #include "esp_random.h"

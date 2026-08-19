@@ -121,7 +121,11 @@ void testValues() noexcept {
 }
 
 void testWriterStopsAtCapacity() noexcept {
-  uint8_t buffer[4];
+  // Zeroed, and that is load-bearing: the check below proves the rejected u32
+  // left byte 2 alone, which is only a statement about the writer if the byte
+  // started as something known. Uninitialised, it read whatever the stack
+  // happened to hold - 0 in a debug build, garbage in a release one.
+  uint8_t buffer[4] = {0};
   HAPWriter writer(buffer, sizeof(buffer));
 
   writer.u16(0x1234);

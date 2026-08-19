@@ -25,7 +25,7 @@
  * calling back into HAP from there would run the whole protocol on somebody
  * else's stack with none of HAP's own invariants held. So the callback copies
  * into a queue and returns, and update() - called from the task that owns this
- * transport, on HLib's tick - hands frames to the receiver.
+ * transport, on HCoreLib's tick - hands frames to the receiver.
  *
  * That is why this class has an update() the interface does not: the simulated
  * transport has nothing to drain.

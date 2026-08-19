@@ -26,7 +26,7 @@
  *   node.addInstance(HAPClassId::Thermometer, "Temp");
  *   stack.begin(1);
  *
- *   // every HLIB_TICK_MS
+ *   // every HCORELIB_TICK_MS
  *   stack.update();
  * @endcode
  *
@@ -69,7 +69,7 @@ class HAPStack {
    */
   bool begin(uint8_t channel) noexcept;
 
-  /** @brief Drives everything. Call every HLIB_TICK_MS. */
+  /** @brief Drives everything. Call every HCORELIB_TICK_MS. */
   void update() noexcept;
 
   // -- the pieces, for an application that needs to look inside ------------

@@ -40,7 +40,7 @@ router that says where a frame goes, a binder that runs a handshake, a model
 that caches what it hears. What it deliberately does not contain is any device's
 idea of what to do with those - which screen to draw, which REST route to
 publish, when to sleep, what a button means. That is what
-`HLib`'s rule "the library never depends on the application" buys, and HAPLib
+`HCoreLib`'s rule "the library never depends on the application" buys, and HAPLib
 keeps to it.
 
 So phase 10 lives in `App/` here, and in `main/` in the test rig: registering
@@ -52,7 +52,7 @@ real instances.
 exposed it: every test was hand-rolling the same twenty lines - decode, offer to
 the binder, else route, else deliver locally - because nothing in the library
 assembled the pieces. That wiring is identical on every device in the ecosystem,
-which made it library work by the same rule that put the portal in HLib.
+which made it library work by the same rule that put the portal in HCoreLib.
 
 ## The library is finished
 
@@ -69,7 +69,7 @@ node.addInstance(HAPClassId::Thermometer, "Temp");
 stack.begin(1);
 
 for (;;) {
-  stack.update();          // every HLIB_TICK_MS
+  stack.update();          // every HCORELIB_TICK_MS
 }
 ```
 
@@ -153,7 +153,7 @@ Eight decisions worth knowing about before reading the code:
 
 ## Tests
 
-`Tests/` is a standalone CMake project — the real HLib and HAPLib sources, no
+`Tests/` is a standalone CMake project — the real HCoreLib and HAPLib sources, no
 reimplementation:
 
 ```

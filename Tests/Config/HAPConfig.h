@@ -4,7 +4,7 @@
  * @file HAPConfig.h
  * @brief HAPLib's optional tuning header, for the host test build.
  *
- * Unlike HLib's, this file is optional - HAPLib runs on its defaults, and
+ * Unlike HCoreLib's, this file is optional - HAPLib runs on its defaults, and
  * HAP.h picks it up only if it exists. Its being here is also the proof that
  * mechanism works.
  *

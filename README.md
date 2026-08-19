@@ -4,7 +4,7 @@ The Hatynka Air Protocol: a tree network over ESP-NOW, for devices that have no
 router, no IP and no pairing app — two button presses bind a device to its
 parent, and every node knows only its parent and its own children.
 
-Built on [HLib](../HLib/README.md), to the same rules: no heap after start-up, no
+Built on [HCoreLib](../HCoreLib/README.md), to the same rules: no heap after start-up, no
 exceptions, ETL containers, and one platform backend compiled in rather than
 switched at runtime.
 
@@ -67,7 +67,7 @@ Gateway ──1── Heating controller ──2── Thermometer (bedroom, bat
 
 ```cmake
 set(EXTRA_COMPONENT_DIRS
-    "${CMAKE_CURRENT_LIST_DIR}/HLib"
+    "${CMAKE_CURRENT_LIST_DIR}/HCoreLib"
     "${CMAKE_CURRENT_LIST_DIR}/HAPLib")
 ```
 
@@ -87,7 +87,7 @@ stack.begin(HAP_DEFAULT_CHANNEL);
 
 for (;;) {
   radio.update();     // drains the Wi-Fi task's queue onto this one
-  stack.update();     // every HLIB_TICK_MS
+  stack.update();     // every HCORELIB_TICK_MS
 }
 ```
 
@@ -98,7 +98,7 @@ a handful of hooks, and the device does the rest.
 
 ### What an application must provide
 
-`HLibConfig.h` and `HGpioConfig.h`, as HLib requires. `HAPConfig.h` is
+`HCoreLibConfig.h` and `HGpioConfig.h`, as HCoreLib requires. `HAPConfig.h` is
 **optional** — every limit here has a default declared next to the code that
 consumes it, and an application supplies the file only when it disagrees with a
 number. One requirement is enforced at compile time:
@@ -173,7 +173,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive          # HLib, and ETL inside it
+          submodules: recursive          # HCoreLib, and ETL inside it
 
       - name: Configure
         run: cmake -S HAPLib/Tests -B build
@@ -225,16 +225,16 @@ The library is self-contained; only the test project's paths assume this layout.
 `Tests/CMakeLists.txt` reaches out with
 
 ```cmake
-add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../HLib" HLib)
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../HCoreLib" HCoreLib)
 ```
 
-so a standalone repository wants HLib as a submodule — and ETL inside *it*, which
-is where HLib already looks first. Nothing else here refers to anything outside
+so a standalone repository wants HCoreLib as a submodule — and ETL inside *it*, which
+is where HCoreLib already looks first. Nothing else here refers to anything outside
 `HAPLib/`.
 
 ## Dependencies
 
-`HLib`, and through it [ETL](https://www.etlcpp.com/) — header-only, so there is
+`HCoreLib`, and through it [ETL](https://www.etlcpp.com/) — header-only, so there is
 nothing to link. On target, `esp_wifi` is a **private** requirement:
 `HAPEspNow.hpp` deliberately declares no ESP type, so the radio's headers stop at
 this component and nothing including a HAPLib header inherits them.

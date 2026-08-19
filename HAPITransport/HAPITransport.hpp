@@ -16,9 +16,9 @@
  * its own transport on a shared simulated bus, and it is why the two-chip
  * gateway can later speak HAP over a serial link with nothing above it changing.
  *
- * ## Why this one is virtual when HLib's platform seams are not
- * HLib compiles exactly one backend of HFs or HGpio, because a device has one
- * filesystem and one set of pins. A test here has SEVERAL transports alive at
+ * ## Why this one is virtual when HCoreLib's platform seams are not
+ * HCoreLib compiles exactly one backend of HFs or HGpio, because a device has
+ * one filesystem and one set of pins. A test here has SEVERAL transports alive at
  * once - one per simulated node - so the choice is per object rather than per
  * build, and that is what a virtual is for. On target there is still only one
  * implementation, and the vtable costs one indirection per frame.

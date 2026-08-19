@@ -1,7 +1,7 @@
 #######################################################################
-# HAPLib - the HatynkaAirProtocol, built on HLib.
+# HAPLib - the HatynkaAirProtocol, built on HCoreLib.
 #
-# Like HLib it builds either as an ESP-IDF component or as a plain static
+# Like HCoreLib it builds either as an ESP-IDF component or as a plain static
 # library for host tests, and for the same reason: almost all of this library
 # is logic - addressing, framing, routing, binding, links - that a desktop can
 # exercise far more thoroughly than two boards on a bench can.
@@ -43,10 +43,11 @@ set(HAPLIB_SRCS
 # "." serves <HAP.h> and the <HAPFrame/HAPFrame.hpp> spelling every module uses.
 set(HAPLIB_INCLUDE_DIRS ".")
 
-# Exactly one transport backend is compiled in, the way HLib chooses a
+# Exactly one transport backend is compiled in, the way HCoreLib chooses a
 # filesystem: ESP-NOW on target, and on the host a bus made of memory that a
 # whole tree of simulated nodes attaches to. The interface is virtual - unlike
-# HLib's platform seams - because a test has several transports alive at once.
+# HCoreLib's platform seams - because a test has several transports alive at
+# once.
 if(ESP_PLATFORM)
   list(APPEND HAPLIB_SRCS "HAPITransport/HAPEspNow/HAPEspNow.cpp")
 else()
@@ -59,7 +60,7 @@ if(ESP_PLATFORM)
   # including a HAPLib header inherits them.
   idf_component_register(SRCS ${HAPLIB_SRCS}
                          INCLUDE_DIRS ${HAPLIB_INCLUDE_DIRS}
-                         REQUIRES HLib
+                         REQUIRES HCoreLib
                          PRIV_REQUIRES esp_wifi esp_netif esp_event)
 
   target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
@@ -72,7 +73,8 @@ else()
   target_include_directories(HAPLib PUBLIC ${HAPLIB_INCLUDE_DIRS})
   target_compile_features(HAPLib PUBLIC cxx_std_17)
 
-  # PUBLIC: HAP.h includes <HLib.h>, and HAPCodec puts HValue in its interface,
-  # so anything including a HAPLib header needs HLib's headers too.
-  target_link_libraries(HAPLib PUBLIC HLib)
+  # PUBLIC: HAP.h includes <HCoreLib.h>, and HAPCodec puts HValue in its
+  # interface, so anything including a HAPLib header needs HCoreLib's headers
+  # too.
+  target_link_libraries(HAPLib PUBLIC HCoreLib)
 endif()

@@ -4,8 +4,8 @@
  * @file HGpioConfig.h
  * @brief A pin table for the host test build.
  *
- * HGpioManager is compiled into HLib whether or not a test touches a pin, and
- * it cannot invent a board - so a table has to exist. One input is enough to
+ * HGpioManager is compiled into HCoreLib whether or not a test touches a pin,
+ * and it cannot invent a board - so a table has to exist. One input is enough to
  * satisfy it; nothing in HAPLib's tests reads a pin.
  */
 

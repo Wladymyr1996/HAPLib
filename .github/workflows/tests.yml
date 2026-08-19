@@ -1,0 +1,74 @@
+#######################################################################
+# HAPLib host tests.
+#
+# Ubuntu only, in both build types. The second axis is not padding: HCoreLib.h's
+# IS_MCU / IS_DESKTOP split and HLog's file/line capture both differ between a
+# Debug and a Release host build, so a Debug-only job would leave the
+# configuration an application actually ships untested.
+#
+# There is no ESP-IDF job here, for the same reason HCoreLib has none: HAPLib is
+# a component rather than a program, and the half of it that only exists on
+# target - HAPEspNow, and the radio behind it - is covered by the firmware
+# repositories that consume this one. What the host build DOES cover is nearly
+# all of it: addressing, framing, routing, binding and links, against the
+# in-process transport that lets a whole tree of nodes live inside one test.
+#######################################################################
+
+name: Tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  host-tests:
+    name: ${{ matrix.os }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # One build type failing should not hide the state of the other.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        build_type: [Debug, Release]
+
+    steps:
+      # .gitmodules names HCoreLib over SSH - and HCoreLib names ETL the same
+      # way - which is right for a developer with a key and impossible for a
+      # runner without one. Rewriting the prefix lets the checkout below fetch
+      # both over HTTPS, without the submodule URLs having to be different here
+      # than they are locally.
+      - name: Fetch GitHub submodules over HTTPS
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      # HCoreLib is a PRIVATE repository, and the automatic GITHUB_TOKEN is
+      # scoped to this one alone - so a default checkout authenticates fine and
+      # then fails on the submodule. HCORELIB_TOKEN is a personal access token
+      # with read access to it; checkout applies whichever token it is given to
+      # the submodules too, which is why the credential is handed over here
+      # rather than baked into the rewrite above.
+      #
+      # The fallback is not decoration: if HCoreLib is ever made public, the
+      # built-in token is enough and the secret can simply be deleted.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.HCORELIB_TOKEN || github.token }}
+
+      - name: Configure
+        run: cmake -S Tests -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      # --output-on-failure is the whole point of the harness printing the
+      # failing expression and its line: a red job should say what broke without
+      # anybody having to reproduce it locally first. The timeout is generous
+      # because several suites wait on real HTimers against the real clock.
+      - name: Test
+        run: >-
+          ctest --test-dir build
+          --build-config ${{ matrix.build_type }}
+          --output-on-failure --timeout 300

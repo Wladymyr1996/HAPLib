@@ -21,7 +21,7 @@
 static_assert(HVALUE_MAX_STRING_LEN >= 32,
               "HAPStore stores a 16-byte link key as 32 hex characters; raise "
               "HVALUE_MAX_STRING_LEN to at least 32 in the application's "
-              "HLibConfig.h");
+              "HCoreLibConfig.h");
 
 namespace {
 

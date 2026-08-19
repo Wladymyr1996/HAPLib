@@ -10,12 +10,12 @@
  * right and this file is a bug - Tests/ exists to keep them honest by encoding
  * the document's own worked examples byte for byte.
  *
- * Built on HLib, and to the same rules: no heap after start-up, no exceptions,
- * ETL containers, and one platform backend compiled in rather than switched at
- * runtime.
+ * Built on HCoreLib, and to the same rules: no heap after start-up, no
+ * exceptions, ETL containers, and one platform backend compiled in rather than
+ * switched at runtime.
  */
 
-#include <HLib.h>
+#include <HCoreLib.h>
 #include <HValue/HValue.hpp>
 
 #include <cstdint>
@@ -23,9 +23,9 @@
 
 #include <etl/string.h>
 
-// Optional application overrides for the limits below. Unlike HLib.h - which
-// demands its HLibConfig.h and fails the build without one - HAPLib runs on its
-// defaults perfectly well: nothing here is a board fact that only the
+// Optional application overrides for the limits below. Unlike HCoreLib.h -
+// which demands its HCoreLibConfig.h and fails the build without one - HAPLib
+// runs on its defaults perfectly well: nothing here is a board fact that only the
 // application can know, so an application supplies this header only when it
 // disagrees with a number.
 #if defined(__has_include)
@@ -389,9 +389,10 @@ const char* HAPResultToString(HAPResult result) noexcept;
  * The one correct way to put a decoded value somewhere, and the only reason this
  * function exists: HValue fixes its type at construction and its `operator=`
  * COERCES rather than replaces, so `stored = HValue(21.5f)` on a
- * default-constructed HValue leaves it Null. That is deliberate in HLib - it is
- * what makes a configuration entry keep the type its file declared - and it is
- * exactly wrong for a value that arrived off a radio already carrying its own.
+ * default-constructed HValue leaves it Null. That is deliberate in HCoreLib -
+ * it is what makes a configuration entry keep the type its file declared - and
+ * it is exactly wrong for a value that arrived off a radio already carrying
+ * its own.
  *
  * Destroying and re-constructing in place is legal, cheap, and the whole of the
  * fix. Every structure in HAPLib that holds an HValue goes through here.

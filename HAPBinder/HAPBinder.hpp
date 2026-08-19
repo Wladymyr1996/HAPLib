@@ -107,7 +107,7 @@ class HAPBinder {
 
   void stopAnnouncing() noexcept;
 
-  /** @brief Drives the timers. Call every HLIB_TICK_MS. */
+  /** @brief Drives the timers. Call every HCORELIB_TICK_MS. */
   void update() noexcept;
 
   /**

@@ -63,15 +63,15 @@ about it.
 
 ## 3. The project
 
-A new project, with **copies** of `HLib/` and `HAPLib/` taken from here.
+A new project, with **copies** of `HCoreLib/` and `HAPLib/` taken from here.
 
 ```
 HapRig/
   CMakeLists.txt
-  HLib/            copied
+  HCoreLib/            copied
   HAPLib/          copied
   main/            the rig firmware, one source for all three roles
-    Config/HLibConfig.h, HGpioConfig.h
+    Config/HCoreLibConfig.h, HGpioConfig.h
 ```
 
 **One firmware, one flag.** All three roles build from the same source and the

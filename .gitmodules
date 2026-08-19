@@ -1,0 +1,3 @@
+[submodule "Tests/HCoreLib"]
+	path = Tests/HCoreLib
+	url = git@github.com:Wladymyr1996/HCoreLib.git

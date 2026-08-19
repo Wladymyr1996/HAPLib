@@ -1,0 +1,305 @@
+@startuml HAPLibClasses
+' ---------------------------------------------------------------------------
+' HAPLib - class structure.
+'
+' Written by reading the headers, and true to them rather than to the
+' intention: every multiplicity below is the etl::vector capacity the code
+' declares, and every association is a member that exists.
+'
+' The ~40 message structs in HAPMessages/ are deliberately NOT drawn one box
+' each. They are plain wire DTOs with no behaviour and no relationships worth a
+' line - drawing them would triple the diagram and bury the part that actually
+' has structure. They are summarised in one box; Docs/Protocol.md specifies
+' their fields.
+'
+' NOTE: "class" here means a C++ class. Docs/Classes/ is a different sense of
+' the word entirely - the protocol's DEVICE classes (Thermometer, Lamp, ...),
+' which appear here only as the HAPClassSpec table that describes them.
+'
+' Render:  plantuml Docs/ClassDiagram.puml
+' ---------------------------------------------------------------------------
+
+skinparam backgroundColor transparent
+skinparam shadowing false
+skinparam class {
+  BackgroundColor #FDFDFD
+  BorderColor #34495E
+  ArrowColor #34495E
+}
+skinparam package {
+  BackgroundColor #F7F9FA
+  BorderColor #BDC3C7
+}
+hide empty members
+
+title HAPLib - class structure\n(dependency layers L0 to L6; no cycles, no multiple inheritance)
+
+' ===========================================================================
+package "L0-L1  Vocabulary" {
+  class HAPPath {
+    -hops_[HAP_MAX_DEPTH] : uint8_t
+    -length_ : uint8_t
+    +{static} fromBytes(hops, length) : HAPPath
+    +hop(index) : uint8_t
+    +first() : uint8_t
+    +shift() : bool
+    +prepend(hop) / append(hop) : bool
+  }
+  class HAPMac <<struct>> {
+    +bytes[HAP_MAC_LEN] : uint8_t
+    +{static} zero() / broadcast() : HAPMac
+    +isBroadcast() : bool
+    +toString() : etl::string<17>
+  }
+  class HAPWriter {
+    -ok_ : bool
+    +u8() / u16() / u32()
+    +value(HValue)
+    +ok() : bool
+  }
+  class HAPReader {
+    +u8() / u16() / u32()
+    +value() : HValue
+    +remaining() : size_t
+  }
+  class HAPListenWindow {
+    -timer_ : HTimer
+    +open()
+    +isOpen() : bool
+  }
+  class HAPQueue {
+    -slots_ : etl::vector<Slot, HAP_MAX_CHILDREN>
+    +push(childIndex, frame, size) : bool
+    +peek(childIndex, size&) : const uint8_t*
+    +pop(childIndex)
+    +expire(olderThanMs) : size_t
+  }
+  class HAPClassSpec <<struct>> {
+    +classId : uint8_t
+  }
+  class HAPPortSpec <<struct>> {
+    +portId : uint8_t
+    +kind : HAPKind
+  }
+  class HAPCrc16 <<free functions>>
+  class HAPRandom <<namespace>>
+  class HAPClasses <<namespace>> {
+    +find(classId) : const HAPClassSpec*
+    +validateLink(...) : HAPResult
+  }
+}
+
+' ===========================================================================
+package "L2  Wire" {
+  class HAPFrame <<struct>> {
+    +type / flags : uint8_t
+    +seq : uint16_t
+    +dest / src : HAPPath
+    +payload : const uint8_t*
+    +{static} decode(data, size, out) : HAPFrameError
+    +encode(out, capacity) : size_t
+    +isUpstream() : bool
+    +message() : HAPMessage
+  }
+  class HAPMessages <<~40 wire DTOs>> {
+    HAPBindAnnounce / HAPBindAccept
+    HAPDescribeResponse / HAPReport
+    HAPReadRequest / HAPWriteRequest
+    HAPLinkSpec / HAPPing / HAPAck ...
+    --
+    each: encode(HAPWriter) / decode(HAPReader)
+  }
+  abstract class HAPITransport {
+    +Receiver = etl::delegate<...>
+    +SendResult = etl::delegate<...>
+    --
+    {abstract} begin(channel) : bool
+    {abstract} send(mac, data, size) : bool
+    {abstract} broadcast(data, size) : bool
+    {abstract} addPeer(mac, key) : bool
+    {abstract} onReceive(Receiver)
+  }
+}
+
+' ===========================================================================
+package "L3  Radio backends  (exactly one compiled in)" {
+  class HAPEspNow {
+    -channel_ : uint8_t
+    +begin(channel) : bool <<override>>
+  }
+  class HAPLoopback {
+    +begin(channel) : bool <<override>>
+  }
+  class HAPLoopbackBus {
+    +attach(HAPLoopback&)
+  }
+}
+
+' ===========================================================================
+package "L3-L4  This node" {
+  class HAPInstance {
+    -classId_ / instanceId_ : uint8_t
+    -name_ : HAPName
+    -ports_ : etl::vector<Port>
+    +configure(classId, instanceId, name) : bool
+    +publish(portId, HValue) : bool
+    +spec() : const HAPClassSpec*
+  }
+  class HAPNode {
+    -name_ : HAPName
+    -instances_ : etl::vector<HAPInstance>
+    +begin(deviceType, capabilities, ...)
+    +addInstance(...) : HAPInstance*
+    +deviceType() : HAPDeviceType
+  }
+}
+
+' ===========================================================================
+package "L3-L5  Network state" {
+  class HAPChild <<struct>> {
+    +mac : HAPMac
+    +index : uint8_t
+    +online : bool
+  }
+  class HAPRouter {
+    -children_ : etl::vector<HAPChild>
+    +addChild(mac) : HAPChild*
+    +route(path) : HAPRoute
+  }
+  class HAPRemoteNode <<struct>> {
+    +path : HAPPath
+    +instances : etl::vector<HAPInstanceDescriptor>
+  }
+  class HAPModel {
+    -nodes_ : etl::vector<HAPRemoteNode>
+    +observe(path) : HAPRemoteNode*
+    +noteReport(path, HAPReport) : HAPRemoteNode*
+    +noteDescribe(...) / notePong(...)
+    +find(path) : const HAPRemoteNode*
+    +nextDescribeNeeded(path&) : bool
+  }
+  class HAPBindState <<struct>> {
+    +parent : HAPMac
+    +path : HAPPath
+    +key[HAP_KEY_LEN] : uint8_t
+  }
+  class HAPStore <<static>> {
+    {static} loadBind(HAPBindState&) : bool
+    {static} saveChildren(const HAPRouter&) : bool
+    {static} saveNames(const HAPNode&) : bool
+    {static} saveModel(const HAPModel&) : bool
+  }
+}
+
+' ===========================================================================
+package "L5  Behaviour" {
+  class HAPBinder {
+    -transport_ : HAPITransport&
+    -router_ : HAPRouter&
+    -window_ : HTimer
+    +listen() : bool
+    +update()
+  }
+  class HAPReporter {
+    -policies_ : etl::vector<Policy>
+    +setPolicy(HAPSetPolicyRequest) : HAPSetPolicyResponse
+    +isDue() : bool
+    +fillReport(HAPReport&)
+    +markReported()
+  }
+  class HAPLinks {
+    -links_ : etl::vector<HAPLinkSpec>
+    +set(HAPLinkSpec) : HAPResult
+    +clear(linkId) : HAPResult
+    +deliver(sourcePath, HAPReport) : size_t
+    +onDeliver(DeliveryHook)
+  }
+}
+
+' ===========================================================================
+package "L6  Assembly" {
+  class HAPStack {
+    -transport_ : HAPITransport&
+    -node_ : HAPNode&
+    -model_ : HAPModel*
+    +begin(channel) : bool
+    +update()
+    +setModel(HAPModel&)
+  }
+}
+
+' ===========================================================================
+' Inheritance - the ONLY inheritance in the library, and it is single.
+HAPITransport <|-- HAPEspNow
+HAPITransport <|-- HAPLoopback
+
+' Composition: HAPStack constructs and owns these outright.
+HAPStack *-- HAPRouter
+HAPStack *-- HAPBinder
+HAPStack *-- HAPReporter
+HAPStack *-- HAPLinks
+HAPStack *-- HAPQueue
+HAPStack *-- HAPListenWindow
+HAPStack *-- HAPBindState
+
+' Aggregation: held by reference or pointer, owned by the application.
+HAPStack o-- "1" HAPITransport
+HAPStack o-- "1" HAPNode
+HAPStack ..> HAPModel : "0..1  optional\n(a leaf pays nothing)"
+
+' The shared references - see the diamond note.
+HAPBinder o-- "1" HAPITransport
+HAPBinder o-- "1" HAPRouter
+HAPBinder o-- "1" HAPNode : const&
+HAPReporter o-- "1" HAPNode : const&
+HAPLinks o-- "1" HAPNode : const&
+
+' Ownership of the fixed-capacity collections.
+HAPNode *-- "0..HAP_MAX_INSTANCES" HAPInstance
+HAPRouter *-- "0..HAP_MAX_CHILDREN" HAPChild
+HAPModel *-- "0..HAP_MODEL_MAX_NODES" HAPRemoteNode
+HAPClassSpec *-- "1..*" HAPPortSpec
+HAPLoopbackBus o-- "*" HAPLoopback
+
+' Uses.
+HAPFrame ..> HAPPath
+HAPFrame ..> HAPWriter
+HAPFrame ..> HAPReader
+HAPMessages ..> HAPWriter
+HAPMessages ..> HAPReader
+HAPMessages ..> HAPPath
+HAPITransport ..> HAPMac
+HAPRouter ..> HAPFrame
+HAPNode ..> HAPCrc16
+HAPNode ..> HAPMessages
+HAPBinder ..> HAPRandom
+HAPInstance ..> HAPClasses
+HAPLinks ..> HAPClasses
+HAPStore ..> HAPRouter
+HAPStore ..> HAPNode
+HAPStore ..> HAPModel
+HAPStack ..> HAPStore
+HAPStack ..> HAPFrame
+
+note right of HAPITransport
+  The one virtual in the library.
+  CMake compiles exactly ONE backend
+  (ESP-NOW on target, loopback on host),
+  so the two subclasses never coexist in
+  a firmware image - only in a host test,
+  which is why this seam is virtual where
+  HCoreLib's platform seams are compile-time.
+end note
+
+note bottom of HAPStack
+  **Diamonds: present, and benign.**
+  HAPStack to {HAPBinder, HAPReporter, HAPLinks} to HAPNode
+  closes a diamond, as does HAPStack to HAPBinder to HAPRouter.
+  Neither is the diamond PROBLEM: that needs multiple
+  inheritance from a shared base, and this library has no
+  multiple inheritance anywhere. These are REFERENCE diamonds
+  with exactly one owner, and the three inner edges are
+  const& - readers, not second writers.
+end note
+
+@enduml

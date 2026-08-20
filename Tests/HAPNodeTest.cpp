@@ -58,6 +58,31 @@ void testClassTableMatchesTheDocuments() noexcept {
   CHECK(std::strcmp(regulator->find(HAPPortDirection::In, 1)->name, "Setpoint") == 0);
   CHECK(regulator->find(HAPPortDirection::Out, 0)->kind == HAPKind::Ratio);
 
+  // Docs/Classes/BatteryStateClass.md: two OUT ports, SoC first because port 0
+  // is what a descriptor's valueType declares.
+  const HAPClassSpec* batteryState =
+      HAPClasses::find(static_cast<uint8_t>(HAPClassId::BatteryState));
+  CHECK(batteryState != nullptr);
+  CHECK(batteryState->countPorts(HAPPortDirection::Out) == 2);
+  CHECK(batteryState->countPorts(HAPPortDirection::In) == 0);
+  CHECK(!HAPClasses::isWritable(static_cast<uint8_t>(HAPClassId::BatteryState)));
+
+  const HAPPortSpec* soc = batteryState->find(HAPPortDirection::Out, 0);
+  CHECK(soc != nullptr);
+  CHECK(soc->kind == HAPKind::Ratio);
+  CHECK(soc->valueType == HAPValueType::Float);
+  CHECK(std::strcmp(soc->name, "SoC") == 0);
+
+  const HAPPortSpec* volts = batteryState->find(HAPPortDirection::Out, 1);
+  CHECK(volts != nullptr);
+  CHECK(volts->kind == HAPKind::Voltage);
+  CHECK(volts->valueType == HAPValueType::Float);
+  CHECK(std::strcmp(volts->name, "Voltage") == 0);
+
+  // A fraction and a voltage are both floats, and only the kind keeps them
+  // apart - which is the whole reason ports carry a kind at all.
+  CHECK(soc->kind != volts->kind);
+
   // Private classes are nobody else's business and are not in the table.
   CHECK(HAPClasses::find(0x80) == nullptr);
   CHECK(HAPClasses::find(0x77) == nullptr);
@@ -201,7 +226,7 @@ HAPNode makeThermometerNode() noexcept {
 
   node.addInstance(HAPClassId::Thermometer, HAPName("Temp"));
   node.addInstance(HAPClassId::Hygrometer, HAPName("Hum"));
-  node.addInstance(HAPClassId::Battery, HAPName("Bat"));
+  node.addInstance(HAPClassId::BatteryState, HAPName("Bat"));
 
   return node;
 }
@@ -343,13 +368,71 @@ void testReportCarriesEveryOutPort() noexcept {
   node.fillReport(report);
 
   CHECK(report.descriptorRev == node.descriptorRev());
-  CHECK(report.entries.size() == 3);
+
+  // Three instances, FOUR entries: BatteryState has two out ports and every one
+  // of them gets a line. This is the count that is not the instance count.
+  CHECK(node.instanceCount() == 3);
+  CHECK(report.entries.size() == 4);
   CHECK(report.entries[0].value.asFloat() == 21.5f);
   CHECK(report.entries[1].value.asFloat() == 44.0f);
 
-  // The battery has never been measured, and the report says so rather than
-  // claiming zero volts.
+  // The battery has never been measured, and the report says so on both ports
+  // rather than claiming a flat cell at zero volts.
+  CHECK(report.entries[2].portId == 0);
   CHECK(report.entries[2].value.isNull());
+  CHECK(report.entries[3].portId == 1);
+  CHECK(report.entries[3].value.isNull());
+}
+
+void testAMultiPortInstanceReportsEachPortSeparately() noexcept {
+  // BatteryState is the standard read-only class with more than one output, so
+  // it is what proves an instance is not limited to a single value.
+  HAPNode node;
+  node.begin(HAPDeviceType::Sensor, HAPCaps::BatteryPowered, HAPName("Bedroom"));
+  CHECK(node.addInstance(HAPClassId::BatteryState, HAPName("Cell")));
+
+  HAPInstance* cell = node.instanceAt(0);
+  CHECK(cell != nullptr);
+
+  // Half charged, and sagging under load - the pair that says more than either.
+  CHECK(cell->publish(0, HValue(0.5f)));
+  CHECK(cell->publish(1, HValue(3.61f)));
+
+  HAPReport report;
+  node.fillReport(report);
+
+  CHECK(report.entries.size() == 2);
+
+  CHECK(report.entries[0].classId == static_cast<uint8_t>(HAPClassId::BatteryState));
+  CHECK(report.entries[0].instanceId == report.entries[1].instanceId);
+  CHECK(report.entries[0].portId == 0);
+  CHECK(report.entries[0].value.asFloat() == 0.5f);
+
+  CHECK(report.entries[1].portId == 1);
+  CHECK(report.entries[1].value.asFloat() == 3.61f);
+
+  // One port may go quiet without taking the other with it: a gauge that lost
+  // its voltage channel still has a charge estimate worth sending.
+  CHECK(cell->publish(1, HValue()));
+  node.fillReport(report);
+  CHECK(report.entries[0].value.asFloat() == 0.5f);
+  CHECK(report.entries[1].value.isNull());
+
+  // The descriptor carries ONE valueType, and it is out port 0's.
+  const HAPInstanceDescriptor descriptor = cell->describe();
+  CHECK(descriptor.valueType == static_cast<uint8_t>(HAPValueType::Float));
+  CHECK((descriptor.flags & HAPInstanceFlags::Writable) == 0);
+
+  // Nothing can be wired into it, and its SoC cannot be wired into a
+  // regulator's temperature input however alike the two look on the wire.
+  const uint8_t batteryState = static_cast<uint8_t>(HAPClassId::BatteryState);
+  const uint8_t regulator = static_cast<uint8_t>(HAPClassId::Regulator);
+  CHECK(HAPClasses::validateLink(regulator, 0, batteryState, 0) ==
+        HAPResult::NotWritable);
+  CHECK(HAPClasses::validateLink(batteryState, 0, regulator, 0) ==
+        HAPResult::TypeMismatch);
+  CHECK(HAPClasses::validateLink(batteryState, 2, regulator, 0) ==
+        HAPResult::NoSuchPort);
 }
 
 void testReadWildcards() noexcept {
@@ -359,7 +442,28 @@ void testReadWildcards() noexcept {
   HAPReadRequest everything;  // Defaults are all wildcards.
   HAPReport report;
   CHECK(node.read(everything, report) == HAPResult::Ok);
-  CHECK(report.entries.size() == 3);
+
+  // Four, not three: the port wildcard expands BatteryState's two out ports.
+  CHECK(report.entries.size() == 4);
+
+  // And a port wildcard narrowed to one instance expands only that one's ports,
+  // which is the case that only exists once a class has more than one.
+  HAPReadRequest everyPortOfOneInstance;
+  everyPortOfOneInstance.classId = static_cast<uint8_t>(HAPClassId::BatteryState);
+  everyPortOfOneInstance.instanceId = 2;
+  CHECK(node.read(everyPortOfOneInstance, report) == HAPResult::Ok);
+  CHECK(report.entries.size() == 2);
+  CHECK(report.entries[0].portId == 0);
+  CHECK(report.entries[1].portId == 1);
+
+  // Naming the port instead picks out exactly one of them.
+  HAPReadRequest justTheVoltage;
+  justTheVoltage.classId = static_cast<uint8_t>(HAPClassId::BatteryState);
+  justTheVoltage.instanceId = 2;
+  justTheVoltage.portId = 1;
+  CHECK(node.read(justTheVoltage, report) == HAPResult::Ok);
+  CHECK(report.entries.size() == 1);
+  CHECK(report.entries[0].portId == 1);
 
   HAPReadRequest oneInstance;
   oneInstance.classId = static_cast<uint8_t>(HAPClassId::Thermometer);
@@ -445,7 +549,7 @@ void testAnnounceMatchesTheDocumentedExample() noexcept {
   node.setReportIntervalSec(60);
   node.addInstance(HAPClassId::Thermometer, HAPName("Temp"));
   node.addInstance(HAPClassId::Hygrometer, HAPName("Hum"));
-  node.addInstance(HAPClassId::Battery, HAPName("Bat"));
+  node.addInstance(HAPClassId::BatteryState, HAPName("Bat"));
 
   HAPBindAnnounce announce;
   CHECK(node.fillAnnounce(announce, 0));
@@ -498,6 +602,7 @@ void runNodeTests() noexcept {
   testDescribePagesWhenItMustAndEveryPageFits();
   testAnnouncePagesTheSameWay();
   testReportCarriesEveryOutPort();
+  testAMultiPortInstanceReportsEachPortSeparately();
   testReadWildcards();
   testWriteReportsWhatWasTaken();
   testRenameMovesTheRevision();

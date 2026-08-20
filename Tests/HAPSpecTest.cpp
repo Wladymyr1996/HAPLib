@@ -91,7 +91,7 @@ void testBindAnnounce() noexcept {
   // 0, 1, 2 rather than three zeroes.
   announce.instances.push_back(descriptor(HAPClassId::Thermometer, 0, "Temp"));
   announce.instances.push_back(descriptor(HAPClassId::Hygrometer, 1, "Hum"));
-  announce.instances.push_back(descriptor(HAPClassId::Battery, 2, "Bat"));
+  announce.instances.push_back(descriptor(HAPClassId::BatteryState, 2, "Bat"));
 
   uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
   HAPWriter writer(payload, sizeof(payload));

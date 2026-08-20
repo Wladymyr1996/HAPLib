@@ -399,10 +399,16 @@ Sent back toward the originator — downstream failures travel up, and the
 | `0x10` | Switch | Bool | — | read |
 | `0x11` | Lamp | Bool | — | read/write |
 | `0x12` | Door | Bool | open = true | read |
-| `0x20` | Battery | Float | V | read |
+| `0x20` | [BatteryState](Classes/BatteryStateClass.md) | Float | 0.0…1.0 | read |
 
 Units are canonical on the wire — **°C and pascals, always**. Fahrenheit and
 millimetres of mercury are display decisions, made where the value is displayed.
+
+**Value** and **Unit** above describe **port 0**, which is every class's primary
+value and the type its descriptor declares. A class may carry more:
+`BatteryState` also reports volts on out port 1, and a `Regulator` takes two
+inputs. What ports a class has is [Classes/](Classes/)'s business, never the
+wire's.
 
 ## 6. Delivery to a sleeping child
 
@@ -481,9 +487,9 @@ The user presses **Bind** on the controller, then **Bind** on the thermometer.
 03                       3 instances
 00 01                    page 0 of 1
 07 42 65 64 72 6F 6F 6D  name "Bedroom"
-01 00 00 03 04 54 65 6D 70   Thermometer, inst 0, —, Float, "Temp"
-02 01 00 03 03 48 75 6D      Hygrometer,  inst 1, —, Float, "Hum"
-20 02 00 03 03 42 61 74      Battery,     inst 2, —, Float, "Bat"
+01 00 00 03 04 54 65 6D 70   Thermometer,  inst 0, —, Float, "Temp"
+02 01 00 03 03 48 75 6D      Hygrometer,   inst 1, —, Float, "Hum"
+20 02 00 03 03 42 61 74      BatteryState, inst 2, —, Float, "Bat"
 ```
 
 Note `instanceId` — 0, 1, 2. It is unique **within the node**, not within the

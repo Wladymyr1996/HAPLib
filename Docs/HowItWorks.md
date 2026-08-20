@@ -120,8 +120,8 @@ A node has a **user name** — free text, not unique, two rooms may both hold a
 "Thermometer" — and up to **8 class instances**.
 
 A class is a thing the node can do: `Thermometer`, `Hygrometer`, `Barometer`,
-`Switch`, `Lamp`, `Door`, `Battery`. A node may have two of the same class,
-told apart by instance id, each with its own name. See
+`Switch`, `Lamp`, `Door`, `BatteryState`. A node may have two of the same
+class, told apart by instance id, each with its own name. See
 [Classes/](Classes/) for what each one reports.
 
 Values travel in the same five-type encoding `HValue` uses — null, bool, int,

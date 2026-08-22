@@ -157,6 +157,28 @@ class HAPStack {
                                        uint8_t portId, const HValue& value)>;
   void onWrite(WriteHook hook) noexcept;
 
+  /**
+   * @brief A master asked this node to update its own firmware.
+   *
+   * The stack decodes the request and encodes the answer; what the hook decides
+   * is only whether this device will do it. Returning Ok means "accepted, and I
+   * am about to try" - the response goes out immediately, because a node cannot
+   * report the outcome of an update that replaces the firmware doing the
+   * reporting.
+   *
+   * **Do not reboot from inside the hook.** The response has not left the radio
+   * yet. Record what was asked, return, and let the application act on it a tick
+   * later - the same discipline every other reboot in this ecosystem follows.
+   *
+   * A device that installs no hook answers Nack(Unsupported), so a master may
+   * always ask and learns the answer either way.
+   *
+   * @return Ok to accept, or a HAPResult saying why not - BadRequest for a
+   *         request it will not try, Busy when one is already running.
+   */
+  using OtaHook = etl::delegate<HAPResult(const HAPOtaRequest& request)>;
+  void onOta(OtaHook hook) noexcept;
+
   /** @brief A report arrived from below - delivered here, or passing through. */
   using ValuesHook =
       etl::delegate<void(const HAPPath& from, const HAPReport& report)>;
@@ -234,6 +256,7 @@ class HAPStack {
 
   WriteHook onWrite_;
   ValuesHook onValues_;
+  OtaHook onOta_;
   HAPBinder::ChildBoundHook onChildBound_;
   HAPBinder::BoundHook onBound_;
 };

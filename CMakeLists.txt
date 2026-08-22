@@ -38,6 +38,7 @@ set(HAPLIB_SRCS
     "HAPMessages/HAPDataMessages.cpp"
     "HAPMessages/HAPLinkMessages.cpp"
     "HAPMessages/HAPMessageParts.cpp"
+    "HAPMessages/HAPServiceMessages.cpp"
     "HAPPath/HAPPath.cpp")
 
 # "." serves <HAP.h> and the <HAPFrame/HAPFrame.hpp> spelling every module uses.

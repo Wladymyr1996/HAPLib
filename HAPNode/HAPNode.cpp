@@ -37,6 +37,16 @@ void HAPNode::setReportIntervalSec(uint16_t seconds) noexcept {
   reportIntervalSec_ = seconds;
 }
 
+const HAPName& HAPNode::firmwareVersion() const noexcept {
+  return firmwareVersion_;
+}
+
+void HAPNode::setFirmwareVersion(const HAPName& version) noexcept {
+  // No descriptorRev bump on purpose - see the header. A new firmware must not
+  // make every master re-read a descriptor that did not change.
+  firmwareVersion_ = version;
+}
+
 HAPInstance* HAPNode::addInstance(HAPClassId classId, const HAPName& name) noexcept {
   if (instances_.full()) {
     return nullptr;

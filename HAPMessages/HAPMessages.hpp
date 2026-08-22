@@ -15,6 +15,7 @@
  * | HAPDataMessages | Describe, Report, Read, Write, SetPolicy, SetName |
  * | HAPControlMessages | Ping, Pong, Ack, Nack, RouteError |
  * | HAPLinkMessages | SetLink, ClearLink, ListLinks |
+ * | HAPServiceMessages | Ota - messages about the node as a device |
  *
  * Every one of them is a plain structure with encode() and decode(), and no
  * knowledge of frames, radios or state: a payload knows its own bytes and
@@ -27,3 +28,4 @@
 #include <HAPMessages/HAPDataMessages.hpp>
 #include <HAPMessages/HAPLinkMessages.hpp>
 #include <HAPMessages/HAPMessageParts.hpp>
+#include <HAPMessages/HAPServiceMessages.hpp>

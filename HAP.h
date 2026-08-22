@@ -139,6 +139,26 @@ constexpr const char* HAPLibVersion() noexcept {
 /** Longest name, in BYTES - "Кімната" is 14 of them and 7 characters. */
 #define HAP_MAX_NAME_LEN 31
 
+/**
+ * Longest Wi-Fi network name, in bytes. 802.11 fixes this at 32 and so does
+ * every router that ever asked somebody to type one.
+ */
+#define HAP_MAX_SSID_LEN 32
+
+/** Longest WPA passphrase, in bytes. 63 is what the standard allows. */
+#define HAP_MAX_PASSPHRASE_LEN 63
+
+/**
+ * Longest firmware URL, in bytes.
+ *
+ * Chosen so that a whole OtaRequest fits one frame with room to spare:
+ * 1 flags + 1 channel + 33 SSID + 64 passphrase + 129 URL = 228, against a
+ * 232-byte payload budget. Raising it past 132 would make the message
+ * paginate, and a message that arrives in two frames is a message a sleeping
+ * node needs two report cycles to receive.
+ */
+#define HAP_MAX_URL_LEN 128
+
 /** Length of an ESP-NOW local master key. */
 #define HAP_KEY_LEN 16
 
@@ -239,6 +259,16 @@ static_assert(HAP_HEADER_SIZE + HAP_MAX_PAYLOAD_SIZE == HAP_MAX_FRAME_SIZE,
 /** A user-visible name: a node's, or one instance's. Never a port's. */
 using HAPName = etl::string<HAP_MAX_NAME_LEN>;
 
+/**
+ * The three strings a service message carries. Not HAPName, and deliberately:
+ * a name is 31 bytes because that is a sensible label, and none of these is a
+ * label - they are what somebody's router and update server are actually
+ * called, and truncating any of them produces a node that cannot connect.
+ */
+using HAPSsid = etl::string<HAP_MAX_SSID_LEN>;
+using HAPPassphrase = etl::string<HAP_MAX_PASSPHRASE_LEN>;
+using HAPUrl = etl::string<HAP_MAX_URL_LEN>;
+
 /** Message type, byte 3 of every frame. See Docs/Protocol.md section 4. */
 enum class HAPMessage : uint8_t {
   BindAnnounce = 0x01,
@@ -270,7 +300,16 @@ enum class HAPMessage : uint8_t {
   ClearLinkRequest = 0x52,
   ClearLinkResponse = 0x53,
   ListLinksRequest = 0x54,
-  ListLinksResponse = 0x55
+  ListLinksResponse = 0x55,
+
+  /**
+   * 0x60-0x6F is NODE SERVICE: messages about the node as a device rather than
+   * about anything it measures or controls. A node that does not implement one
+   * answers Nack(Unsupported), which is what that code is for - so a master may
+   * always ask, and learns the answer either way.
+   */
+  OtaRequest = 0x60,
+  OtaResponse = 0x61
 };
 
 /**

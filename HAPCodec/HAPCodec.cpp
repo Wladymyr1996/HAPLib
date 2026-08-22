@@ -130,6 +130,20 @@ void HAPWriter::name(etl::string_view text) noexcept {
   bytes(reinterpret_cast<const uint8_t*>(text.data()), length);
 }
 
+void HAPWriter::text(etl::string_view value, size_t maxLength) noexcept {
+  // 255 is what a one-byte length prefix can express. A caller asking for more
+  // would silently write a length that does not describe what follows.
+  const size_t cap = (maxLength < 255) ? maxLength : 255;
+  const size_t length = utf8SafeLength(value.data(), value.size(), cap);
+
+  if (!take(1 + length)) {
+    return;
+  }
+
+  u8(static_cast<uint8_t>(length));
+  bytes(reinterpret_cast<const uint8_t*>(value.data()), length);
+}
+
 void HAPWriter::value(const HValue& value) noexcept {
   switch (value.type()) {
     case HValue::Type::Null:
@@ -264,6 +278,23 @@ HAPName HAPReader::name() noexcept {
       utf8SafeLength(reinterpret_cast<const char*>(data), length, HAP_MAX_NAME_LEN);
   text.assign(reinterpret_cast<const char*>(data), kept);
   return text;
+}
+
+void HAPReader::text(etl::istring& out) noexcept {
+  out.clear();
+
+  const uint8_t length = u8();
+  const uint8_t* data = bytes(length);
+  if (data == nullptr) {
+    return;
+  }
+
+  // The destination's own capacity is the cap. A peer built to a different
+  // limit is not an attack, and truncating at a code point boundary keeps
+  // whatever did fit displayable.
+  const size_t kept =
+      utf8SafeLength(reinterpret_cast<const char*>(data), length, out.max_size());
+  out.assign(reinterpret_cast<const char*>(data), kept);
 }
 
 HValue HAPReader::value() noexcept {

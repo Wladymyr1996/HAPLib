@@ -264,6 +264,7 @@ void HAPStack::deliverLocally(const HAPFrame& frame) noexcept {
     case HAPMessage::SetLinkResponse:
     case HAPMessage::ClearLinkResponse:
     case HAPMessage::ListLinksResponse:
+    case HAPMessage::OtaResponse:
     case HAPMessage::Ack:
       handleUpstreamNews(frame);
       break;
@@ -335,6 +336,21 @@ void HAPStack::handleUpstreamNews(const HAPFrame& frame) noexcept {
         // Identity changed - a node appeared, or one moved. This is the only
         // message that can say so, and it is never repeated.
         rememberModel();
+      }
+      break;
+    }
+
+    case HAPMessage::OtaResponse: {
+      // Listed as upstream news rather than left to handleRequest(), whose
+      // default branch is a Nack: a master answering its own child's "I will
+      // update" with "unsupported" would be news about nothing climbing to the
+      // root. Logged and no more - what a master does about it is its own
+      // business, and the interesting half arrives later as the node's next
+      // report from a firmware it did not have before.
+      HAPOtaResponse response;
+      if (response.decode(reader)) {
+        HInfo("%s runs firmware %s: %s", frame.src.toString().c_str(),
+              response.version.c_str(), HAPResultToString(response.result));
       }
       break;
     }
@@ -465,6 +481,37 @@ void HAPStack::handleRequest(const HAPFrame& frame) noexcept {
         response.encode(writer);
         respond(frame, HAPMessage::ListLinksResponse, payload, writer.size());
       }
+      break;
+    }
+
+    case HAPMessage::OtaRequest: {
+      HAPOtaRequest request;
+      const bool parsed = request.decode(reader);
+
+      HAPOtaResponse response;
+      response.version = node_.firmwareVersion();
+
+      if (!parsed) {
+        response.result = HAPResult::BadRequest;
+      } else if (!onOta_.is_valid()) {
+        // A node that cannot update itself says so rather than staying silent,
+        // so a master learns the answer instead of timing out.
+        response.result = HAPResult::Unsupported;
+      } else if (request.isQueryOnly()) {
+        // The version is the whole answer, and nothing is acted on. This is
+        // what lets a master confirm an update afterwards - the firmware that
+        // would have reported the outcome has been replaced by the one it
+        // installed.
+        response.result = HAPResult::Ok;
+      } else {
+        response.result = onOta_(request);
+      }
+
+      // ALWAYS answered before anything happens. The hook records what was
+      // asked and returns; the reboot is the application's, a tick later, once
+      // this frame has left the radio.
+      response.encode(writer);
+      respond(frame, HAPMessage::OtaResponse, payload, writer.size());
       break;
     }
 
@@ -977,6 +1024,7 @@ bool HAPStack::isBound() const noexcept { return router_.hasParent(); }
 
 void HAPStack::onWrite(WriteHook hook) noexcept { onWrite_ = hook; }
 void HAPStack::onValues(ValuesHook hook) noexcept { onValues_ = hook; }
+void HAPStack::onOta(OtaHook hook) noexcept { onOta_ = hook; }
 
 void HAPStack::onChildBound(HAPBinder::ChildBoundHook hook) noexcept {
   onChildBound_ = hook;

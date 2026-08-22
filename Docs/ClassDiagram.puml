@@ -1,0 +1,297 @@
+@startuml HAPLib
+' ---------------------------------------------------------------------------
+' HAPLib - structure only.
+'
+' Names, relations and the role of each class. No fields and no methods: the
+' headers carry those and would only go stale here. What this diagram is for is
+' the SHAPE of the library - which class knows about which, and how a frame off
+' a radio becomes a reading somebody can read.
+'
+' It is drawn to the same conventions as HCoreLib/Docs/ClassDiagram.puml, and
+' the two are meant to be read together: HAPLib sits ON HCoreLib and never the
+' other way round.
+'
+' THE THREE ROLES
+'   «boundary»  something on the EDGE of the process - a radio, a flash
+'               partition. There are only three here, and that is the point:
+'               almost nothing in this library touches hardware, which is what
+'               lets a whole simulated tree of nodes run in a host test.
+'   «control»   logic and coordination - the mechanisms with an opinion about
+'               what happens next.
+'   «entity»    a value, a record or a message payload that gets passed around.
+'
+' WHAT IS COLLAPSED, so nobody reads an absence as a claim. Three groups are
+' drawn as one box each, and in every case the box is the unit a translation
+' unit actually includes:
+'
+'   * the 28 message payloads (HAPPing, HAPBindAnnounce, HAPOtaRequest, ...)
+'     appear as their five FAMILY headers. A reporter has no business compiling
+'     the link messages, and thirty boxes would bury the shape this is for.
+'   * HAPWriter and HAPReader appear as HAPCodec, the header that declares both.
+'   * HAPClassSpec and HAPPortSpec appear as HAPClasses - they ARE the table.
+'
+' Private nested structs (Slot, Peer, Page, Entry, Block) are not drawn at all.
+' They are implementation detail of the class that owns them, and naming them
+' here would promise a stability their headers do not.
+' ---------------------------------------------------------------------------
+
+skinparam backgroundColor #FEFEFE
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam ArrowColor #33556B
+skinparam package {
+  BorderColor #8FA6B4
+  BackgroundColor #FBFCFD
+}
+
+skinparam class<<boundary>> {
+  BorderColor #1F6F8B
+  BackgroundColor #E8F4F8
+}
+skinparam class<<control>> {
+  BorderColor #99621E
+  BackgroundColor #FBF0E0
+}
+skinparam class<<entity>> {
+  BorderColor #3E7D4F
+  BackgroundColor #E9F5EC
+}
+skinparam class<<external>> {
+  BorderColor #7A7A8C
+  BackgroundColor #F0F0F4
+}
+
+hide empty members
+hide circle
+
+package "Vocabulary" {
+  class HAP <<entity>>
+  class HAPMac <<entity>>
+  class HAPPath <<entity>>
+  class HAPCrc16 <<control>>
+  class HAPRandom <<boundary>>
+
+  note bottom of HAP
+    Not a class: the header every other one
+    includes. Constants, the message enum,
+    the flag bits, the result codes - the
+    words the protocol is written in.
+  end note
+}
+
+package "Wire format" {
+  class HAPCodec <<control>>
+  class HAPFrame <<entity>>
+  class HAPMessageParts <<entity>>
+  class HAPBindMessages <<entity>>
+  class HAPDataMessages <<entity>>
+  class HAPControlMessages <<entity>>
+  class HAPLinkMessages <<entity>>
+  class HAPServiceMessages <<entity>>
+  class HAPMessages <<entity>>
+
+  note bottom of HAPMessages
+    An umbrella header, not a class: it includes
+    the five families for code that dispatches on
+    HAPFrame::message() and therefore touches most
+    of the catalogue.
+  end note
+}
+
+package "This node" {
+  class HAPClasses <<entity>>
+  class HAPInstance <<entity>>
+  class HAPNode <<entity>>
+}
+
+package "Mechanisms" {
+  class HAPRouter <<control>>
+  class HAPBinder <<control>>
+  class HAPReporter <<control>>
+  class HAPLinks <<control>>
+  class HAPQueue <<control>>
+  class HAPListenWindow <<control>>
+  class HAPModel <<entity>>
+  class HAPStore <<boundary>>
+}
+
+package "Transport" {
+  class HAPITransport <<boundary>>
+  class HAPEspNow <<boundary>>
+  class HAPLoopback <<boundary>>
+}
+
+package "The whole protocol" {
+  class HAPStack <<control>>
+}
+
+package "HCoreLib" <<Rectangle>> {
+  class HValue <<external>>
+  class HConfig <<external>>
+  class HRtcStore <<external>>
+  class HTimer <<external>>
+  class HSystemUtils <<external>>
+}
+
+' --- Vocabulary ----------------------------------------------------------
+HAPMac ..> HAP
+HAPPath ..> HAP
+HAPCodec ..> HAP
+
+' --- Wire format ---------------------------------------------------------
+' A payload knows its own bytes and nothing else. What surrounds it is
+' HAPFrame's business, and when to send one is HAPStack's - which is why every
+' arrow in this package points DOWN into the codec and never sideways.
+HAPFrame ..> HAPPath : carries two
+HAPFrame ..> HAPCodec
+HAPMessageParts ..> HAPCodec
+HAPMessageParts ..> HAPPath
+HAPMessageParts *-- HValue : every VALUE on the wire\nIS an HValue
+HAPBindMessages ..> HAPMessageParts
+HAPDataMessages ..> HAPMessageParts
+HAPControlMessages ..> HAPMessageParts
+HAPLinkMessages ..> HAPMessageParts
+HAPServiceMessages ..> HAPMessageParts
+HAPMessages ..> HAPBindMessages
+HAPMessages ..> HAPDataMessages
+HAPMessages ..> HAPControlMessages
+HAPMessages ..> HAPLinkMessages
+HAPMessages ..> HAPServiceMessages
+
+' --- This node -----------------------------------------------------------
+' A descriptor names what a thing IS; HAPClasses says what that MEANS. Which is
+' why ports are never transmitted and a node's descriptor stays small.
+HAPClasses ..> HAP
+HAPInstance ..> HAPClasses : ports come from the class
+HAPInstance ..> HAPMessageParts
+HAPNode *-- "0..8" HAPInstance
+HAPNode ..> HAPMessages
+HAPNode ..> HAPCrc16 : descriptorRev is a CRC\nover the descriptor
+
+' --- Mechanisms ----------------------------------------------------------
+HAPRouter ..> HAPFrame
+HAPRouter ..> HAPMac
+HAPBinder ..> HAPITransport : adds the encrypted peer
+HAPBinder ..> HAPRouter
+HAPBinder ..> HAPNode
+HAPBinder ..> HAPFrame
+HAPBinder ..> HAPBindMessages
+HAPBinder ..> HAPRandom : the link key
+HAPReporter ..> HAPNode : reads the out ports
+HAPReporter ..> HAPDataMessages
+HAPReporter ..> HAPClasses
+HAPReporter ..> HSystemUtils : when a report is due
+HAPLinks ..> HAPNode
+HAPLinks ..> HAPLinkMessages
+HAPLinks ..> HAPClasses : a link is legal or it is not
+HAPQueue ..> HAP
+HAPQueue ..> HSystemUtils
+HAPListenWindow ..> HTimer
+HAPModel ..> HAPMessages
+HAPModel ..> HAPMac
+HAPModel ..> HAPPath
+HAPStore ..> HAPNode : names
+HAPStore ..> HAPModel : who is out there
+HAPStore ..> HAPRouter : the bind
+HAPStore ..> HConfig : a file per thing kept
+HAPStore ..> HRtcStore : the bind, mirrored\nso a wake need not\nmount a filesystem
+
+' --- Transport -----------------------------------------------------------
+' Virtual on purpose. It is the seam a host test substitutes a whole simulated
+' network at, and the seam this project's own MeshRadio wraps to mount a
+' filesystem before a frame that needs one is handled.
+HAPITransport ..> HAPMac
+HAPITransport <|.. HAPEspNow
+HAPITransport <|.. HAPLoopback
+
+' --- The stack -----------------------------------------------------------
+' Twenty lines connecting seven mechanisms, and they are the same twenty lines
+' on every device in the ecosystem - which is what makes them library work
+' rather than each application's.
+HAPStack *-- HAPRouter
+HAPStack *-- HAPBinder
+HAPStack *-- HAPReporter
+HAPStack *-- HAPLinks
+HAPStack *-- HAPQueue
+HAPStack *-- HAPListenWindow
+HAPStack --> HAPITransport : not owned
+HAPStack --> HAPNode : not owned
+HAPStack --> HAPModel : optional -\na leaf must not\npay for one
+HAPStack ..> HAPStore
+
+' ---------------------------------------------------------------------------
+note as Acyclic
+  **This graph has no cycles, through headers or through .cpp files.**
+
+  The library is a strict stack, and reading it bottom-up is reading the
+  protocol itself:
+
+  HAP -> HAPPath/HAPMac/HAPCodec -> HAPFrame/HAPMessageParts -> the five
+  message families -> HAPInstance -> HAPNode -> the mechanisms -> HAPStack
+
+  Nothing below ever names anything above it. Three places where that took a
+  deliberate decision rather than luck:
+
+  * **HAPRouter does not know what a node is.** It moves frames by path and
+    nothing else, so HAPStore can persist a bind through it without the router
+    ever learning there is a filesystem.
+  * **HAPModel is a pointer on the stack, not a member.** A root wants one and
+    a leaf must not pay close to a kilobyte per remote node for it - so the
+    dependency is optional at runtime and absent from the header's weight.
+  * **HAPITransport names only HAPMac.** The seam below the protocol cannot
+    know about frames, or a test could not substitute a whole simulated network
+    at it - and this project's MeshRadio could not wrap it to mount a
+    filesystem before a frame that needs one is handled.
+
+  **Both kinds are checked, and that distinction is the point.** A cycle
+  through headers cannot compile, so it is found the day it is written. A cycle
+  that closes through .cpp files compiles perfectly and survives for years - it
+  is only ever found by looking.
+end note
+
+note as Diamond
+  **No diamond, and nothing to solve.**
+
+  Not one class in this library has two bases, and `virtual` inheritance
+  appears nowhere. There is exactly ONE inheritance relation in the whole of
+  HAPLib:
+
+  * HAPITransport <- HAPEspNow | HAPLoopback
+
+  and one more outside it, which is worth knowing because it is the reason the
+  interface is virtual at all:
+
+  * HAPITransport <- **MeshRadio** (HTHP/App) - a pass-through that mounts the
+    filesystem before a frame that can change stored state reaches the protocol
+
+  Everything else composes. HAPStack owns six mechanisms by value and holds
+  three more by reference; not one of them is a base class. That is what keeps
+  the object graph flat enough to reason about with no heap and no RTTI - this
+  library builds with `-fno-rtti`, so `dynamic_cast` does not exist and a
+  virtual base would have to be navigated by hand.
+end note
+
+' ---------------------------------------------------------------------------
+' Both notes above are mechanically checkable, and were checked. Re-run either
+' after changing an include, from the repository root:
+'
+'   python HCoreLib/tools/checkdeps.py HAPLib          # add -v for every edge
+'   python HCoreLib/tools/checkdeps.py HCoreLib
+'
+' and for the diamond half, which is one grep because the answer is "none":
+'
+'   grep -rnE "^ *class +[A-Za-z0-9_]+ *: *(public|protected|private)" \
+'        --include=*.hpp HAPLib | grep -v Tests
+'
+' Every line it prints should name exactly one base.
+' ---------------------------------------------------------------------------
+
+legend right
+  |= role |= what it means |
+  |<#E8F4F8> «boundary» | the edge of the process: a radio, a flash partition |
+  |<#FBF0E0> «control» | logic and coordination, no state of its own worth naming |
+  |<#E9F5EC> «entity» | a value, record or message payload that gets passed around |
+  |<#F0F0F4> «external» | HCoreLib - this library sits on it, never the reverse |
+endlegend
+
+@enduml

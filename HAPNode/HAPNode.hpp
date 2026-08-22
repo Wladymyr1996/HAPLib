@@ -52,6 +52,22 @@ class HAPNode {
   void setReportIntervalSec(uint16_t seconds) noexcept;
 
   /**
+   * @brief What firmware this node is running. For OtaResponse, and logs.
+   *
+   * Deliberately NOT part of the descriptor and NOT in descriptorRev: a
+   * firmware update would otherwise move the revision of every node it touched,
+   * and every master caching one would re-interrogate a node whose classes,
+   * instances and names had not changed at all. On a battery node that is a
+   * full Describe exchange bought with nothing.
+   *
+   * Empty until an application sets it. HAPLib cannot read it for itself - the
+   * version lives in the application image's own descriptor, which is the
+   * platform's business rather than the protocol's.
+   */
+  const HAPName& firmwareVersion() const noexcept;
+  void setFirmwareVersion(const HAPName& version) noexcept;
+
+  /**
    * @brief Adds a class instance. A start-up call - see the class note.
    * @return The instance, or nullptr when the node is full or the class is one
    *         this build does not know.
@@ -114,6 +130,7 @@ class HAPNode {
   uint8_t capabilities_ = HAPCaps::None;
   uint16_t reportIntervalSec_ = 0;
   HAPName name_;
+  HAPName firmwareVersion_;
 
   etl::vector<HAPInstance, HAP_MAX_INSTANCES> instances_;
 };

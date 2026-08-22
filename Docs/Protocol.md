@@ -178,6 +178,13 @@ it costs a child slot nothing.
 | `0x53` | `ClearLinkResponse` | node → master | [Links.md §5](Links.md) |
 | `0x54` | `ListLinksRequest` | master → node | [Links.md §5](Links.md) |
 | `0x55` | `ListLinksResponse` | node → master | [Links.md §5](Links.md) |
+| `0x60` | `OtaRequest` | master → node | §4.19 |
+| `0x61` | `OtaResponse` | node → master | §4.20 |
+
+`0x60`–`0x6F` is **node service**: messages about the node as a *device* rather
+than about anything it measures or controls. A node that does not implement one
+answers `Nack(Unsupported)`, which is what that code is for — so a master may
+always ask, and learns the answer either way.
 
 ### 4.1 BindAnnounce
 
@@ -380,6 +387,73 @@ allows.
 
 Sent back toward the originator — downstream failures travel up, and the
 `srcPath` of the failed frame says where to send it.
+
+### 4.19 OtaRequest
+
+"Join this network and install the firmware at this URL."
+
+| Size | Field | |
+| --- | --- | --- |
+| 1 | flags | below |
+| 1 | channel | the Wi-Fi channel the router is on; 0 = scan for it |
+| n | SSID | `u8` length + UTF-8, ≤ 32 |
+| n | passphrase | `u8` length + UTF-8, ≤ 63; empty for an open network |
+| n | URL | `u8` length + UTF-8, ≤ 128 |
+
+| Bit | Name | Meaning |
+| --- | --- | --- |
+| 0 | `ALLOW_SAME_VERSION` | the node may reinstall the version it is already running |
+| 1 | `QUERY_ONLY` | answer, and do **nothing** else |
+| 2–7 | reserved | zero |
+
+At full length this is **228 bytes**, against a 232-byte payload budget — so it
+always fits **one frame**, and that is the whole reason it is one message rather
+than three writes into a private class. A parent queues one frame per sleeping
+child (§6), so three separate writes carrying an SSID, a passphrase and a URL
+would take three report cycles to arrive and could be acted on half-delivered.
+
+`channel` is carried because a scan across every channel costs a battery node
+seconds of radio it does not have to spend when the master already knows.
+
+**`QUERY_ONLY` is what makes this pair a version query.** A node MUST NOT act on
+a request carrying it; it answers with its version and nothing happens. That is
+the only way a master can confirm an update afterwards, because the firmware
+that would have reported the outcome has been replaced by the one it installed.
+
+**What this message does not carry: any proof of what is at that URL.** It
+authenticates the *instruction* — it arrived over an encrypted link from a bound
+parent, so nobody can inject one — and says nothing about who serves the bytes.
+The node validates the *image* from the image's own header. See the note at the
+end of §4.20.
+
+### 4.20 OtaResponse
+
+| Size | Field | |
+| --- | --- | --- |
+| 1 | result | §7 |
+| n | NAME | the firmware version running **now**, before any update |
+
+Sent the moment the request is understood, **not when the update finishes**. A
+node cannot report the outcome of an update that replaces the firmware doing the
+reporting, and a master that waited for one would wait forever. So `result` means
+*accepted, and I am about to try*:
+
+| Code | Means |
+| --- | --- |
+| `0x00` Ok | accepted — or, for a query, "here is my version" |
+| `0x06` BadRequest | no SSID, or a URL this node will not try |
+| `0x08` Busy | an update is already queued or running |
+| `0x09` Unsupported | this node cannot update itself over the air |
+
+After a successful update the node reboots, rejoins from its stored bind, and
+reports as usual. A master that wants confirmation sends a second request with
+`QUERY_ONLY` and compares the version.
+
+**The version is deliberately not part of the descriptor** and does not move
+`descriptorRev`. If it did, every firmware update would change the revision of
+every node it touched, and every master caching one would re-interrogate a node
+whose classes, instances and names had not changed at all — a full Describe
+exchange, on a battery, bought with nothing.
 
 ## 5. Class identifiers
 
@@ -659,3 +733,75 @@ Three things worth noticing:
 - **nothing else in the network had to be told anything.** The controller does
   not care what its child's instances are called, and no node between here and
   the root holds a copy that could go stale.
+
+### 8.5 Updating a sleeping thermometer
+
+The gateway tells `1.2` to install firmware from the update server on the house
+network. The node is asleep and will be for another 40 seconds.
+
+**① OtaRequest** — gateway → controller, `destPath [2]`, `ACK_REQ`, 72 bytes.
+The gateway resolves its own first hop, so what it emits already carries the
+remainder:
+
+```
+48 41                    magic 'H' 'A'
+01                       version 1
+60                       type OtaRequest
+01                       flags ACK_REQ
+30 00                    seq 0x0030
+10                       pathLens: dest 1, src 0
+02 00 00 00 00           destPath = [2]
+00 00 00 00 00           srcPath
+-- payload ---------------------------------------------------------------
+00                       flags: neither ALLOW_SAME_VERSION nor QUERY_ONLY
+01                       channel 1 - the master knows, so no scan
+07 48 61 74 79 6E 6B 61              SSID "Hatynka"
+06 73 33 63 72 65 74                 passphrase "s3cret"
+24 68 74 74 70 3A 2F 2F 31 39 32     URL, 36 bytes:
+   2E 31 36 38 2E 31 2E 31 30 2F     "http://192.168.1.10/HTermo-1.2.0.bin"
+   48 54 65 72 6D 6F 2D 31 2E 32
+   2E 30 2E 62 69 6E
+```
+
+The controller sees that child 2 is battery-powered and **queues** it. Nothing
+is acknowledged — a parent never answers for a child.
+
+**② …40 s later, the thermometer wakes and reports**, and the queued frame goes
+out inside its 120 ms listen window with `QUEUED` set.
+
+**③ OtaResponse** — thermometer → gateway, climbing as any upstream frame does
+and arriving with `srcPath = [1, 2]`, 25 bytes:
+
+```
+48 41 01 61 02  30 00  02  00×5  01 02 00 00 00
+-- payload ---------------------------------------------------------------
+00                       result Ok - accepted, and about to try
+05 31 2E 31 2E 30        version "1.1.0" - what is running NOW
+```
+
+The node then leaves the mesh, joins `Hatynka`, downloads over HTTP, writes the
+inactive slot and reboots. **Nothing further is reported**: the firmware that
+would have said how it went has been replaced by the one it installed.
+
+To confirm, the gateway sends the same message again with `QUERY_ONLY` set and
+compares the version:
+
+```
+-- payload ---------------------------------------------------------------
+02                       flags: QUERY_ONLY
+00                       channel - unused
+00 00 00                 no SSID, no passphrase, no URL
+```
+
+which the node answers without acting on anything, and this time the version
+reads `1.2.0`.
+
+Three things worth noticing:
+
+- **the whole instruction was one frame**, so it cost exactly one report cycle -
+  the same as a rename, and for the same reason: a parent holds one queued frame
+  per sleeping child;
+- **the response says "accepted", not "installed"**, and a master's UI must show
+  it that way. Anything else would be reporting an outcome nobody has observed;
+- **a failed update is invisible from here.** The node comes back on its old
+  firmware and reports as usual, and the query above is what tells the two apart.

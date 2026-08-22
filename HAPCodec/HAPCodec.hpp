@@ -69,6 +69,20 @@ class HAPWriter {
    */
   void name(etl::string_view text) noexcept;
 
+  /**
+   * @brief A length-prefixed UTF-8 string with a caller-chosen cap.
+   *
+   * The same encoding as name(), which is a special case of this with the cap
+   * fixed at HAP_MAX_NAME_LEN. It exists because the service messages carry
+   * strings a name's 31 bytes cannot hold - an SSID, a passphrase, a URL - and
+   * truncating any of those produces a node that cannot connect rather than one
+   * with an abbreviated label.
+   *
+   * @param maxLength Longest body to write, in bytes. Longer text is truncated
+   *        at a CODE POINT boundary, exactly as name() does it.
+   */
+  void text(etl::string_view value, size_t maxLength) noexcept;
+
   /** @brief A type byte followed by the body that type implies. */
   void value(const HValue& value) noexcept;
 
@@ -115,6 +129,20 @@ class HAPReader {
 
   /** @brief A length-prefixed name; empty if the buffer ends first. */
   HAPName name() noexcept;
+
+  /**
+   * @brief A length-prefixed string, into whatever capacity `out` has.
+   *
+   * The counterpart of HAPWriter::text(). Takes etl::istring rather than a
+   * concrete etl::string<N> so one function serves an SSID, a passphrase and a
+   * URL without a template - the cap is the destination's own capacity, which
+   * is the only sensible answer anyway.
+   *
+   * A string longer than that capacity is truncated at a code point boundary,
+   * for the same reason a name is: a peer built to a different limit is not an
+   * attack, and half a UTF-8 sequence is not displayable.
+   */
+  void text(etl::istring& out) noexcept;
 
   /**
    * @brief A type byte and its body.

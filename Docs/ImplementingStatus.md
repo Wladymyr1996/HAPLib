@@ -88,7 +88,7 @@ test.
 | `HAPPath` | the 5-hop relative address, with the `shift()` / `prepend()` pair the whole routing design rests on |
 | `HAPCodec` | bounds-checked reading and writing of every primitive: little-endian integers, IEEE-754 floats, UTF-8 names, HValue-compatible values |
 | `HAPFrame` | the 18-byte header, encode and decode, with a payload that is a view rather than a copy |
-| `HAPMessages` | all 26 payloads as typed structures, grouped into bind, data, control and link headers |
+| `HAPMessages` | all 28 payloads as typed structures, grouped into bind, data, control, link and service headers |
 | `HAPMac` | an address that can be compared, copied and printed by value |
 | `HAPITransport` | the radio seam, with a memory-only backend on the host |
 | `HAPRouter` | parent, children, and the two forwarding rules — no radio, no timers, no state machine |

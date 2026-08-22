@@ -495,6 +495,114 @@ void testSetLink() noexcept {
   CHECK(parsed.destination.classId == static_cast<uint8_t>(HAPClassId::Regulator));
 }
 
+/**
+ * Docs/Protocol.md section 8.5 - a firmware update pushed to a sleeping node.
+ *
+ * The whole request fits ONE frame, which is the reason the message exists at
+ * all: a parent queues one frame per sleeping child, so anything that needed
+ * two would take two report cycles to arrive and could be acted on half
+ * delivered.
+ */
+void testOtaRequest() noexcept {
+  HAPOtaRequest request;
+  request.flags = HAPOtaFlags::None;
+  request.channel = 1;
+  request.ssid = "Hatynka";
+  request.passphrase = "s3cret";
+  request.url = "http://192.168.1.10/HTermo-1.2.0.bin";
+
+  uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
+  HAPWriter writer(payload, sizeof(payload));
+  request.encode(writer);
+
+  CHECK(writer.size() == request.encodedSize());
+
+  HAPPath toThermometer;
+  toThermometer.append(kThermometerIsChildOfController);
+
+  uint8_t buffer[HAP_MAX_FRAME_SIZE];
+  const size_t size =
+      buildFrame(HAPMessage::OtaRequest, HAPFlags::AckRequested, 0x0030,
+                 toThermometer, HAPPath(), payload, writer.size(), buffer,
+                 sizeof(buffer));
+
+  CHECK(size == 72);
+  CHECK_BYTES(buffer, size,
+              "4841 01 60 01 3000 10 0200000000 0000000000"
+              "00 01"
+              "07 48617479 6E6B61"
+              "06 733363 726574"
+              "24 687474 703A2F2F 3139322E 3136382E 312E3130"
+              "2F485465 726D6F2D 312E322E 302E6269 6E");
+
+  HAPReader reader(payload, writer.size());
+  HAPOtaRequest parsed;
+  CHECK(parsed.decode(reader));
+  CHECK(parsed.channel == 1);
+  CHECK(std::strcmp(parsed.ssid.c_str(), "Hatynka") == 0);
+  CHECK(std::strcmp(parsed.passphrase.c_str(), "s3cret") == 0);
+  CHECK(std::strcmp(parsed.url.c_str(), "http://192.168.1.10/HTermo-1.2.0.bin") == 0);
+  CHECK(!parsed.isQueryOnly());
+  CHECK(parsed.isActionable());
+}
+
+/** The answer, which says what is running NOW - not what will be. */
+void testOtaResponse() noexcept {
+  HAPOtaResponse response;
+  response.result = HAPResult::Ok;
+  response.version = "1.1.0";
+
+  uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
+  HAPWriter writer(payload, sizeof(payload));
+  response.encode(writer);
+
+  HAPPath fromThermometer;
+  fromThermometer.append(kControllerIsChildOfGateway);
+  fromThermometer.append(kThermometerIsChildOfController);
+
+  uint8_t buffer[HAP_MAX_FRAME_SIZE];
+  const size_t size =
+      buildFrame(HAPMessage::OtaResponse, HAPFlags::Upstream, 0x0030, HAPPath(),
+                 fromThermometer, payload, writer.size(), buffer, sizeof(buffer));
+
+  CHECK(size == 25);
+  CHECK_BYTES(buffer, size,
+              "4841 01 61 02 3000 02 0000000000 0102000000"
+              "00 05 312E312E30");
+
+  HAPReader reader(payload, writer.size());
+  HAPOtaResponse parsed;
+  CHECK(parsed.decode(reader));
+  CHECK(parsed.result == HAPResult::Ok);
+  CHECK(std::strcmp(parsed.version.c_str(), "1.1.0") == 0);
+}
+
+/**
+ * A query carries no network and asks for nothing to happen.
+ *
+ * The half of this message pair that makes it a version QUERY: it is the only
+ * way a master can confirm an update afterwards, since the firmware that would
+ * have reported the outcome has been replaced by the one it installed.
+ */
+void testOtaQueryIsNotActionable() noexcept {
+  HAPOtaRequest query;
+  query.flags = HAPOtaFlags::QueryOnly;
+
+  CHECK(query.isQueryOnly());
+  CHECK(!query.isActionable());
+
+  // Nor is a request that names a network but nowhere to fetch from - refused
+  // rather than attempted, because the alternative is a battery node sitting
+  // with its radio on until its own timeout gives up.
+  HAPOtaRequest noUrl;
+  noUrl.ssid = "Hatynka";
+  CHECK(!noUrl.isActionable());
+
+  HAPOtaRequest noSsid;
+  noSsid.url = "http://host/f.bin";
+  CHECK(!noSsid.isActionable());
+}
+
 }  // namespace
 
 void runSpecTests() noexcept {
@@ -510,4 +618,7 @@ void runSpecTests() noexcept {
   testWriteResponseClimbsBack();
   testRenameAndItsRevision();
   testSetLink();
+  testOtaRequest();
+  testOtaResponse();
+  testOtaQueryIsNotActionable();
 }

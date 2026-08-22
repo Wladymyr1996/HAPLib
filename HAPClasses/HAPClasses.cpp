@@ -30,8 +30,14 @@ constexpr HAPPortSpec kLampPorts[] = {
 constexpr HAPPortSpec kDoorPorts[] = {
     {0, HAPPortDirection::Out, HAPKind::OnOff, HAPValueType::Bool, "Open"}};
 
-constexpr HAPPortSpec kBatteryPorts[] = {
-    {0, HAPPortDirection::Out, HAPKind::Voltage, HAPValueType::Float,
+// Two outputs, and the first of them is the one that matters: SoC is what a
+// user acts on, so it is port 0 and it is what an instance's descriptor
+// declares. Voltage rides along on port 1 because a gauge knows it anyway, and
+// a terminal voltage sagging under load says things a percentage cannot - a
+// cell at 0.5 SoC that sags to 3.1 V under transmit has days rather than weeks.
+constexpr HAPPortSpec kBatteryStatePorts[] = {
+    {0, HAPPortDirection::Out, HAPKind::Ratio, HAPValueType::Float, "SoC"},
+    {1, HAPPortDirection::Out, HAPKind::Voltage, HAPValueType::Float,
      "Voltage"}};
 
 // The class Docs/Links.md wires up: two inputs and an output, and the reason
@@ -57,7 +63,7 @@ constexpr HAPClassSpec kClasses[] = {
     makeClass(HAPClassId::Switch, "Switch", kSwitchPorts),
     makeClass(HAPClassId::Lamp, "Lamp", kLampPorts),
     makeClass(HAPClassId::Door, "Door", kDoorPorts),
-    makeClass(HAPClassId::Battery, "Battery", kBatteryPorts),
+    makeClass(HAPClassId::BatteryState, "BatteryState", kBatteryStatePorts),
     makeClass(HAPClassId::Regulator, "Regulator", kRegulatorPorts)};
 
 constexpr size_t kClassCount = sizeof(kClasses) / sizeof(kClasses[0]);

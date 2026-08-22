@@ -13,9 +13,11 @@
 '
 ' THE THREE ROLES
 '   «boundary»  something on the EDGE of the process - a radio, a flash
-'               partition. There are only three here, and that is the point:
-'               almost nothing in this library touches hardware, which is what
-'               lets a whole simulated tree of nodes run in a host test.
+'               partition, an entropy source. There are only those THREE
+'               places, and that is the point: almost nothing in this library
+'               touches hardware, which is what lets a whole simulated tree of
+'               nodes run in a host test. (Five boxes carry the stereotype -
+'               two of them are the transport's interchangeable backends.)
 '   «control»   logic and coordination - the mechanisms with an opinion about
 '               what happens next.
 '   «entity»    a value, a record or a message payload that gets passed around.
@@ -24,11 +26,19 @@
 ' drawn as one box each, and in every case the box is the unit a translation
 ' unit actually includes:
 '
-'   * the 28 message payloads (HAPPing, HAPBindAnnounce, HAPOtaRequest, ...)
+'   * the 27 message payloads (HAPPing, HAPBindAnnounce, HAPOtaRequest, ...)
 '     appear as their five FAMILY headers. A reporter has no business compiling
 '     the link messages, and thirty boxes would bury the shape this is for.
+'     The three pieces they are BUILT from - HAPInstanceDescriptor,
+'     HAPValueEntry, HAPPortRef - stay visible as HAPMessageParts, because
+'     every family depends on that one and the arrows are the point.
 '   * HAPWriter and HAPReader appear as HAPCodec, the header that declares both.
 '   * HAPClassSpec and HAPPortSpec appear as HAPClasses - they ARE the table.
+'     What a class MEANS lives in Docs/Classes/, not here: giving BatteryState
+'     a second out port changes that table and nothing on this diagram.
+'   * HLog is not drawn. Six .cpp files log; not one of them does anything
+'     differently because of it, and six arrows into a diagnostic would claim a
+'     shape the library does not have.
 '
 ' Private nested structs (Slot, Peer, Page, Entry, Block) are not drawn at all.
 ' They are implementation detail of the class that owns them, and naming them
@@ -137,13 +147,17 @@ package "HCoreLib" <<Rectangle>> {
 HAPMac ..> HAP
 HAPPath ..> HAP
 HAPCodec ..> HAP
+HAP ..> HValue : the five wire types ARE\nHValue's five, and HAPAssign\nis the one place a stored\nvalue changes TYPE
 
 ' --- Wire format ---------------------------------------------------------
 ' A payload knows its own bytes and nothing else. What surrounds it is
 ' HAPFrame's business, and when to send one is HAPStack's - which is why every
 ' arrow in this package points DOWN into the codec and never sideways.
+HAPFrame ..> HAP
 HAPFrame ..> HAPPath : carries two
 HAPFrame ..> HAPCodec
+HAPCodec ..> HValue : what a VALUE is\nread into and\nwritten from
+HAPMessageParts ..> HAP
 HAPMessageParts ..> HAPCodec
 HAPMessageParts ..> HAPPath
 HAPMessageParts *-- HValue : every VALUE on the wire\nIS an HValue
@@ -152,6 +166,7 @@ HAPDataMessages ..> HAPMessageParts
 HAPControlMessages ..> HAPMessageParts
 HAPLinkMessages ..> HAPMessageParts
 HAPServiceMessages ..> HAPMessageParts
+HAPMessages ..> HAPMessageParts
 HAPMessages ..> HAPBindMessages
 HAPMessages ..> HAPDataMessages
 HAPMessages ..> HAPControlMessages
@@ -164,6 +179,7 @@ HAPMessages ..> HAPServiceMessages
 HAPClasses ..> HAP
 HAPInstance ..> HAPClasses : ports come from the class
 HAPInstance ..> HAPMessageParts
+HAPInstance ..> HSystemUtils : every port remembers\nwhen it last moved
 HAPNode *-- "0..8" HAPInstance
 HAPNode ..> HAPMessages
 HAPNode ..> HAPCrc16 : descriptorRev is a CRC\nover the descriptor
@@ -177,6 +193,7 @@ HAPBinder ..> HAPNode
 HAPBinder ..> HAPFrame
 HAPBinder ..> HAPBindMessages
 HAPBinder ..> HAPRandom : the link key
+HAPBinder ..> HTimer : four deadlines - the window,\nthe announce, the channel\ndwell, the confirmation
 HAPReporter ..> HAPNode : reads the out ports
 HAPReporter ..> HAPDataMessages
 HAPReporter ..> HAPClasses
@@ -186,10 +203,12 @@ HAPLinks ..> HAPLinkMessages
 HAPLinks ..> HAPClasses : a link is legal or it is not
 HAPQueue ..> HAP
 HAPQueue ..> HSystemUtils
+HAPListenWindow ..> HAP
 HAPListenWindow ..> HTimer
 HAPModel ..> HAPMessages
 HAPModel ..> HAPMac
 HAPModel ..> HAPPath
+HAPModel ..> HSystemUtils : how long since\na node was heard
 HAPStore ..> HAPNode : names
 HAPStore ..> HAPModel : who is out there
 HAPStore ..> HAPRouter : the bind
@@ -200,6 +219,7 @@ HAPStore ..> HRtcStore : the bind, mirrored\nso a wake need not\nmount a filesys
 ' Virtual on purpose. It is the seam a host test substitutes a whole simulated
 ' network at, and the seam this project's own MeshRadio wraps to mount a
 ' filesystem before a frame that needs one is handled.
+HAPITransport ..> HAP : a size and a key length,\nno message and no frame
 HAPITransport ..> HAPMac
 HAPITransport <|.. HAPEspNow
 HAPITransport <|.. HAPLoopback
@@ -238,10 +258,12 @@ note as Acyclic
   * **HAPModel is a pointer on the stack, not a member.** A root wants one and
     a leaf must not pay close to a kilobyte per remote node for it - so the
     dependency is optional at runtime and absent from the header's weight.
-  * **HAPITransport names only HAPMac.** The seam below the protocol cannot
-    know about frames, or a test could not substitute a whole simulated network
-    at it - and this project's MeshRadio could not wrap it to mount a
-    filesystem before a frame that needs one is handled.
+  * **HAPITransport names no message and no frame.** It takes bytes and a
+    MAC, and all it borrows from the vocabulary header is a size and a key
+    length. The seam below the protocol cannot know what a frame is, or a test
+    could not substitute a whole simulated network at it - and this project's
+    MeshRadio could not wrap it to mount a filesystem before a frame that needs
+    one is handled.
 
   **Both kinds are checked, and that distinction is the point.** A cycle
   through headers cannot compile, so it is found the day it is written. A cycle
@@ -266,22 +288,28 @@ note as Diamond
 
   Everything else composes. HAPStack owns six mechanisms by value and holds
   three more by reference; not one of them is a base class. That is what keeps
-  the object graph flat enough to reason about with no heap and no RTTI - this
-  library builds with `-fno-rtti`, so `dynamic_cast` does not exist and a
-  virtual base would have to be navigated by hand.
+  the object graph flat enough to reason about with no heap and no RTTI - the
+  firmware that carries this library builds with RTTI off (ESP-IDF's default;
+  HTHP's sdkconfig leaves `CONFIG_COMPILER_CXX_RTTI` unset), so `dynamic_cast`
+  does not exist on target and a virtual base would have to be navigated by
+  hand.
 end note
 
 ' ---------------------------------------------------------------------------
 ' Both notes above are mechanically checkable, and were checked. Re-run either
-' after changing an include, from the repository root:
+' after changing an include, from THIS repository's root:
 '
-'   python HCoreLib/tools/checkdeps.py HAPLib          # add -v for every edge
+'   python Tests/HCoreLib/tools/checkdeps.py .         # add -v for every edge
+'
+' or from the directory holding both checkouts side by side:
+'
+'   python HCoreLib/tools/checkdeps.py HAPLib
 '   python HCoreLib/tools/checkdeps.py HCoreLib
 '
 ' and for the diamond half, which is one grep because the answer is "none":
 '
 '   grep -rnE "^ *class +[A-Za-z0-9_]+ *: *(public|protected|private)" \
-'        --include=*.hpp HAPLib | grep -v Tests
+'        --include=*.hpp . | grep -v Tests
 '
 ' Every line it prints should name exactly one base.
 ' ---------------------------------------------------------------------------

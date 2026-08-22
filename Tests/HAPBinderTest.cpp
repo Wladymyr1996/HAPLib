@@ -148,7 +148,7 @@ BindableNode makeMaster(uint8_t id, HAPLoopbackBus& bus) noexcept {
 void fillSensor(HAPNode& node) noexcept {
   node.addInstance(HAPClassId::Thermometer, HAPName("Temp"));
   node.addInstance(HAPClassId::Hygrometer, HAPName("Hum"));
-  node.addInstance(HAPClassId::Battery, HAPName("Bat"));
+  node.addInstance(HAPClassId::BatteryState, HAPName("Bat"));
 }
 
 // -------------------------------------------------------------------------

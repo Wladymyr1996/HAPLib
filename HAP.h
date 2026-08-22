@@ -395,7 +395,7 @@ enum class HAPClassId : uint8_t {
   Lamp = 0x11,
   Door = 0x12,
 
-  Battery = 0x20,
+  BatteryState = 0x20,
 
   Regulator = 0x30
 };

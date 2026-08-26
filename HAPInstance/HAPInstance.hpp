@@ -5,11 +5,6 @@
 
 #include <etl/vector.h>
 
-/** Ports one instance may have. The widest standard class, Regulator, has three. */
-#ifndef HAP_MAX_PORTS_PER_INSTANCE
-#define HAP_MAX_PORTS_PER_INSTANCE 4
-#endif
-
 /**
  * @brief One live class instance on this node: its name, and its ports' values.
  *

@@ -27,8 +27,27 @@ constexpr HAPPortSpec kLampPorts[] = {
     {0, HAPPortDirection::Out, HAPKind::OnOff, HAPValueType::Bool, "State"},
     {0, HAPPortDirection::In, HAPKind::OnOff, HAPValueType::Bool, "State"}};
 
+// A door is the first class that is genuinely a MACHINE rather than a reading:
+// it takes time to move, it can be interrupted, and where it is between the two
+// ends is a thing somebody wants to see.
+//
+// Out 0 is unchanged and stays a plain Bool, because that is what every master
+// already written against this class reads and because "is it open" is the
+// question most things want answered. Out 1 carries what a bool cannot: the six
+// states in Docs/Classes/DoorClass.md, as Text, so `opening` and `stopped` are
+// visible rather than collapsed into `false`.
+//
+// The three in ports are separate rather than one Text command, and the reason
+// is links. A link matches on KIND, so three OnOff inputs can be driven by any
+// button, contact or logic output in the ecosystem; a single Text "Command" port
+// could only ever be written by a master that knew the vocabulary, which would
+// put a door outside the reach of the very wiring this class exists for.
 constexpr HAPPortSpec kDoorPorts[] = {
-    {0, HAPPortDirection::Out, HAPKind::OnOff, HAPValueType::Bool, "Open"}};
+    {0, HAPPortDirection::Out, HAPKind::OnOff, HAPValueType::Bool, "Open"},
+    {1, HAPPortDirection::Out, HAPKind::Text, HAPValueType::String, "State"},
+    {0, HAPPortDirection::In, HAPKind::OnOff, HAPValueType::Bool, "Open"},
+    {1, HAPPortDirection::In, HAPKind::OnOff, HAPValueType::Bool, "Close"},
+    {2, HAPPortDirection::In, HAPKind::OnOff, HAPValueType::Bool, "Stop"}};
 
 // Two outputs, and the first of them is the one that matters: SoC is what a
 // user acts on, so it is port 0 and it is what an instance's descriptor
@@ -67,6 +86,34 @@ constexpr HAPClassSpec kClasses[] = {
     makeClass(HAPClassId::Regulator, "Regulator", kRegulatorPorts)};
 
 constexpr size_t kClassCount = sizeof(kClasses) / sizeof(kClasses[0]);
+
+/**
+ * @brief No class may declare more ports than an instance can hold.
+ *
+ * The coupling between this table and HAPInstance's storage, made a build error
+ * rather than a runtime one. Without it, adding a sixth port to a class compiles
+ * perfectly and then fails inside HAPInstance::configure() on every device that
+ * tries to be one - which reads as "this node refuses to have a door" and sends
+ * somebody hunting through the wrong layer entirely.
+ *
+ * Raise HAP_MAX_PORTS_PER_INSTANCE in HAP.h if a class genuinely needs more,
+ * remembering that every instance on every node pays for it.
+ */
+constexpr uint8_t widestClass() noexcept {
+  uint8_t widest = 0;
+
+  for (const HAPClassSpec& candidate : kClasses) {
+    if (candidate.portCount > widest) {
+      widest = candidate.portCount;
+    }
+  }
+
+  return widest;
+}
+
+static_assert(widestClass() <= HAP_MAX_PORTS_PER_INSTANCE,
+              "a class in this table declares more ports than HAPInstance can "
+              "hold - raise HAP_MAX_PORTS_PER_INSTANCE in HAP.h");
 
 }  // namespace
 

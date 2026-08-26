@@ -198,6 +198,23 @@ static_assert(HAP_HEADER_SIZE + HAP_MAX_PAYLOAD_SIZE == HAP_MAX_FRAME_SIZE,
 #endif
 
 /**
+ * Ports one instance may have. The widest standard class, Door, has five.
+ *
+ * It lives here rather than beside HAPInstance, which is what actually spends
+ * the RAM, because it is a property of the CLASS TABLE: no class may declare
+ * more ports than an instance can hold, and HAPClasses.cpp static_asserts
+ * exactly that. Keeping the number where the table can see it turns "this class
+ * cannot be instantiated" from a runtime configure() failure on one node into a
+ * build error on every node.
+ *
+ * Costs one HValue plus a timestamp per port per instance, so raising it is
+ * paid for by every device in the ecosystem including the battery ones.
+ */
+#ifndef HAP_MAX_PORTS_PER_INSTANCE
+#define HAP_MAX_PORTS_PER_INSTANCE 5
+#endif
+
+/**
  * Values one Report or ReadResponse may carry.
  *
  * Not the same as the instance count: an instance with several out ports

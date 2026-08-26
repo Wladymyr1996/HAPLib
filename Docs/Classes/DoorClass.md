@@ -116,6 +116,15 @@ an expensive noise.
 Writing an in port that is already being satisfied is not an error: `Open` while
 `opened` is answered `Ok` and changes nothing.
 
+**The opposite command while moving means STOP.** `Close` written to a door that
+is `opening` halts it and leaves it `stopped`; it does not wait and then travel
+shut. A master that wants the door closed writes `Close` a second time, once the
+state has settled. This is the behaviour of the gate controllers people already
+own, and the reason is that a moving door is usually stopped because something
+has just appeared underneath it — sending it the other way is the one thing
+nobody wants at that moment. An implementation is free to refuse commands for a
+short lockout afterwards while its contactors part.
+
 ## Three in ports, not one command
 
 The obvious alternative is a single Text `Command` port taking `"open"`,

@@ -475,6 +475,7 @@ exchange, on a battery, bought with nothing.
 | `0x12` | Door | Bool | open = true | read |
 | `0x13` | [Relay](Classes/RelayClass.md) | Bool | closed = true | read/write |
 | `0x20` | [BatteryState](Classes/BatteryStateClass.md) | Float | 0.0…1.0 | read |
+| `0x21` | [Alarm](Classes/AlarmClass.md) | Bool | active = true | read; write resets |
 
 Units are canonical on the wire — **°C and pascals, always**. Fahrenheit and
 millimetres of mercury are display decisions, made where the value is displayed.

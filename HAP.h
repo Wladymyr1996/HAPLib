@@ -414,6 +414,7 @@ enum class HAPClassId : uint8_t {
   Relay = 0x13,
 
   BatteryState = 0x20,
+  Alarm = 0x21,
 
   Regulator = 0x30
 };

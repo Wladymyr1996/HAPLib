@@ -132,6 +132,25 @@ void testLinkValidation() noexcept {
   CHECK(HAPClasses::validateLink(0x80, 0, regulator, 0) == HAPResult::NoSuchClass);
 }
 
+void testAlarmCanBeResetButNotTripped() noexcept {
+  // Docs/Classes/AlarmClass.md: Active out 0, Reset in 0, both OnOff Bool.
+  const uint8_t alarm = static_cast<uint8_t>(HAPClassId::Alarm);
+  const HAPClassSpec* spec = HAPClasses::find(alarm);
+  CHECK(spec != nullptr);
+  CHECK(spec->classId == 0x21);
+  CHECK(std::strcmp(spec->name, "Alarm") == 0);
+  CHECK(spec->countPorts(HAPPortDirection::Out) == 1);
+  CHECK(spec->countPorts(HAPPortDirection::In) == 1);
+  CHECK(std::strcmp(spec->find(HAPPortDirection::Out, 0)->name, "Active") == 0);
+  CHECK(std::strcmp(spec->find(HAPPortDirection::In, 0)->name, "Reset") == 0);
+  CHECK(spec->find(HAPPortDirection::In, 0)->kind == HAPKind::OnOff);
+  CHECK(HAPClasses::isWritable(alarm));
+
+  // One in port, and it is Reset: there is no port a master could trip it
+  // through.
+  CHECK(HAPClasses::port(alarm, HAPPortDirection::In, 1) == nullptr);
+}
+
 void testRelayIsALampShapedClassOfItsOwn() noexcept {
   // Docs/Classes/RelayClass.md: State out 0 and State in 0, both OnOff Bool.
   const uint8_t relay = static_cast<uint8_t>(HAPClassId::Relay);
@@ -643,6 +662,7 @@ void runNodeTests() noexcept {
   testAPortNumberMeansNothingWithoutADirection();
   testLinkValidation();
   testRelayIsALampShapedClassOfItsOwn();
+  testAlarmCanBeResetButNotTripped();
   testInstanceStartsWithNoReading();
   testInstanceRefusesTheWrongType();
   testInstanceWriteRules();

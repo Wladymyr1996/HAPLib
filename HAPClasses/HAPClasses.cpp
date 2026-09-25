@@ -67,6 +67,14 @@ constexpr HAPPortSpec kBatteryStatePorts[] = {
     {1, HAPPortDirection::Out, HAPKind::Voltage, HAPValueType::Float,
      "Voltage"}};
 
+// A latched stop: out 0 says the node is holding its outputs safe, in 0 asks it
+// to let go. Deliberately no way IN - a master cannot trip one - because a
+// spoofed or misrouted frame must not be able to stop a plant. See
+// Docs/Classes/AlarmClass.md.
+constexpr HAPPortSpec kAlarmPorts[] = {
+    {0, HAPPortDirection::Out, HAPKind::OnOff, HAPValueType::Bool, "Active"},
+    {0, HAPPortDirection::In, HAPKind::OnOff, HAPValueType::Bool, "Reset"}};
+
 // The class Docs/Links.md wires up: two inputs and an output, and the reason
 // the control-function range exists.
 constexpr HAPPortSpec kRegulatorPorts[] = {
@@ -92,6 +100,7 @@ constexpr HAPClassSpec kClasses[] = {
     makeClass(HAPClassId::Door, "Door", kDoorPorts),
     makeClass(HAPClassId::Relay, "Relay", kRelayPorts),
     makeClass(HAPClassId::BatteryState, "BatteryState", kBatteryStatePorts),
+    makeClass(HAPClassId::Alarm, "Alarm", kAlarmPorts),
     makeClass(HAPClassId::Regulator, "Regulator", kRegulatorPorts)};
 
 constexpr size_t kClassCount = sizeof(kClasses) / sizeof(kClasses[0]);

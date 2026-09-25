@@ -132,6 +132,56 @@ void testLinkValidation() noexcept {
   CHECK(HAPClasses::validateLink(0x80, 0, regulator, 0) == HAPResult::NoSuchClass);
 }
 
+void testRelayIsALampShapedClassOfItsOwn() noexcept {
+  // Docs/Classes/RelayClass.md: State out 0 and State in 0, both OnOff Bool.
+  const uint8_t relay = static_cast<uint8_t>(HAPClassId::Relay);
+  const uint8_t lamp = static_cast<uint8_t>(HAPClassId::Lamp);
+  const uint8_t thermometer = static_cast<uint8_t>(HAPClassId::Thermometer);
+
+  const HAPClassSpec* spec = HAPClasses::find(relay);
+  CHECK(spec != nullptr);
+  CHECK(spec->classId == 0x13);
+  CHECK(std::strcmp(spec->name, "Relay") == 0);
+  CHECK(spec->countPorts(HAPPortDirection::Out) == 1);
+  CHECK(spec->countPorts(HAPPortDirection::In) == 1);
+  CHECK(HAPClasses::isWritable(relay));
+
+  const HAPPortSpec* out = spec->find(HAPPortDirection::Out, 0);
+  CHECK(out != nullptr);
+  CHECK(out->kind == HAPKind::OnOff);
+  CHECK(out->valueType == HAPValueType::Bool);
+  CHECK(std::strcmp(out->name, "State") == 0);
+
+  const HAPPortSpec* in = spec->find(HAPPortDirection::In, 0);
+  CHECK(in != nullptr);
+  CHECK(in->kind == HAPKind::OnOff);
+  CHECK(in->valueType == HAPValueType::Bool);
+  CHECK(std::strcmp(in->name, "State") == 0);
+
+  // A different class from a lamp, but the same kind on both sides - so a
+  // lamp's state may drive a relay and back, and a relay may drive another.
+  CHECK(relay != lamp);
+  CHECK(HAPClasses::validateLink(lamp, 0, relay, 0) == HAPResult::Ok);
+  CHECK(HAPClasses::validateLink(relay, 0, lamp, 0) == HAPResult::Ok);
+  CHECK(HAPClasses::validateLink(relay, 0, relay, 0) == HAPResult::Ok);
+
+  // What it refuses is what a lamp refuses: a second input, and a temperature.
+  CHECK(HAPClasses::validateLink(relay, 0, relay, 1) == HAPResult::NoSuchPort);
+  CHECK(HAPClasses::validateLink(thermometer, 0, relay, 0) ==
+        HAPResult::TypeMismatch);
+  CHECK(HAPClasses::validateLink(relay, 0, thermometer, 0) ==
+        HAPResult::NotWritable);
+
+  // An instance of it configures, and describes itself as writable Bool.
+  HAPInstance instance;
+  CHECK(instance.configure(relay, 0, HAPName("Relay 1")));
+
+  const HAPInstanceDescriptor descriptor = instance.describe();
+  CHECK(descriptor.classId == relay);
+  CHECK(descriptor.valueType == static_cast<uint8_t>(HAPValueType::Bool));
+  CHECK((descriptor.flags & HAPInstanceFlags::Writable) != 0);
+}
+
 // -------------------------------------------------------------------------
 // Instances
 // -------------------------------------------------------------------------
@@ -592,6 +642,7 @@ void runNodeTests() noexcept {
   testClassTableMatchesTheDocuments();
   testAPortNumberMeansNothingWithoutADirection();
   testLinkValidation();
+  testRelayIsALampShapedClassOfItsOwn();
   testInstanceStartsWithNoReading();
   testInstanceRefusesTheWrongType();
   testInstanceWriteRules();

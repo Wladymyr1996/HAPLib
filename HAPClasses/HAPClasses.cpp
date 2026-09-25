@@ -49,6 +49,14 @@ constexpr HAPPortSpec kDoorPorts[] = {
     {1, HAPPortDirection::In, HAPKind::OnOff, HAPValueType::Bool, "Close"},
     {2, HAPPortDirection::In, HAPKind::OnOff, HAPValueType::Bool, "Stop"}};
 
+// The same shape as a lamp, on purpose, and still a class of its own. A gateway
+// shows "relay" rather than "lamp" for a contact that may be switching a pump,
+// and the class can grow - a port saying who drives it, say - without changing
+// what a lamp is. See Docs/Classes/RelayClass.md.
+constexpr HAPPortSpec kRelayPorts[] = {
+    {0, HAPPortDirection::Out, HAPKind::OnOff, HAPValueType::Bool, "State"},
+    {0, HAPPortDirection::In, HAPKind::OnOff, HAPValueType::Bool, "State"}};
+
 // Two outputs, and the first of them is the one that matters: SoC is what a
 // user acts on, so it is port 0 and it is what an instance's descriptor
 // declares. Voltage rides along on port 1 because a gauge knows it anyway, and
@@ -82,6 +90,7 @@ constexpr HAPClassSpec kClasses[] = {
     makeClass(HAPClassId::Switch, "Switch", kSwitchPorts),
     makeClass(HAPClassId::Lamp, "Lamp", kLampPorts),
     makeClass(HAPClassId::Door, "Door", kDoorPorts),
+    makeClass(HAPClassId::Relay, "Relay", kRelayPorts),
     makeClass(HAPClassId::BatteryState, "BatteryState", kBatteryStatePorts),
     makeClass(HAPClassId::Regulator, "Regulator", kRegulatorPorts)};
 

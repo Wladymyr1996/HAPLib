@@ -50,6 +50,18 @@ void HAPReporter::setMinimumIntervalSec(uint16_t seconds) noexcept {
   minimumIntervalSec_ = seconds;
 }
 
+const HAPReporter::Policy* HAPReporter::find(uint8_t classId, uint8_t instanceId,
+                                             uint8_t portId) const noexcept {
+  for (const Policy& policy : policies_) {
+    if (policy.classId == classId && policy.instanceId == instanceId &&
+        policy.portId == portId) {
+      return &policy;
+    }
+  }
+
+  return nullptr;
+}
+
 HAPReporter::Policy* HAPReporter::find(uint8_t classId, uint8_t instanceId,
                                        uint8_t portId) noexcept {
   for (Policy& policy : policies_) {
@@ -108,6 +120,21 @@ bool HAPReporter::moved(const HValue& then, const HValue& now,
 }
 
 bool HAPReporter::isDue(const Policy& policy, uint32_t now) const noexcept {
+  const HAPInstance* instance = node_.instance(policy.classId, policy.instanceId);
+  if (instance == nullptr) {
+    return false;
+  }
+
+  const HValue current = instance->read(policy.portId);
+
+  // No reading, and none reported either: this port has nothing to say. It
+  // would be left out of the report anyway - see fillReport() - so it must not
+  // be the reason one is sent. Otherwise a node whose radio comes up before
+  // its sensors do transmits once for nothing and again for the reading.
+  if (current.isNull() && policy.lastValue.isNull()) {
+    return false;
+  }
+
   // Never reported: say so at once rather than an interval after binding.
   if (!policy.everSent) {
     return true;
@@ -120,12 +147,7 @@ bool HAPReporter::isDue(const Policy& policy, uint32_t now) const noexcept {
     }
   }
 
-  const HAPInstance* instance = node_.instance(policy.classId, policy.instanceId);
-  if (instance == nullptr) {
-    return false;
-  }
-
-  return moved(policy.lastValue, instance->read(policy.portId), policy.deadband);
+  return moved(policy.lastValue, current, policy.deadband);
 }
 
 bool HAPReporter::isDue() const noexcept {
@@ -169,7 +191,33 @@ void HAPReporter::fillReport(HAPReport& report) const noexcept {
   // Every out port, not only the ones that are due: the deadband decided
   // whether to transmit, and having decided, a consistent snapshot is worth
   // more to a master than a scattering of single values.
-  node_.fillReport(report);
+  HAPReport all;
+  node_.fillReport(all);
+
+  report.descriptorRev = all.descriptorRev;
+  report.entries.clear();
+
+  // EXCEPT a port that has no reading and never reported one. A missing entry
+  // means "no news", which changes nothing at the far end; a Null entry means
+  // "no reading", which a link treats as a failed sensor and trips its
+  // failsafe. A port that has simply not been measured YET is the first kind.
+  //
+  // A port that HAD a reading and lost it is not: its Null is real news, and
+  // goes out once - after which its lastValue is Null too, and it is quiet.
+  //
+  // Rebuilt with push_back rather than compacted in place: assigning one entry
+  // over another coerces the value into the old type - see
+  // HAPValueEntry::setValue() - and a Float moved onto a Null slot reads Null.
+  for (const HAPValueEntry& entry : all.entries) {
+    if (entry.value.isNull()) {
+      const Policy* policy = find(entry.classId, entry.instanceId, entry.portId);
+      if (policy == nullptr || policy->lastValue.isNull()) {
+        continue;
+      }
+    }
+
+    report.entries.push_back(entry);
+  }
 }
 
 void HAPReporter::markReported() noexcept {

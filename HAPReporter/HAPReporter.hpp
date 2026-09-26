@@ -60,11 +60,16 @@ class HAPReporter {
    * @brief True when the interval has elapsed, or a value has moved far enough.
    *
    * Also true for a port that has never been reported, so the first report
-   * after a bind goes out at once rather than an interval later.
+   * after a bind goes out at once rather than an interval later - but only
+   * once it has a reading: an unmeasured port is never a reason to transmit.
    */
   bool isDue() const noexcept;
 
-  /** @brief Every out port, whatever made the report due. */
+  /**
+   * @brief Every out port, whatever made the report due - except one with no
+   *        reading that has never reported one, which is left out rather than
+   *        sent as Null. Absent is "no news"; Null is "the sensor failed".
+   */
   void fillReport(HAPReport& report) const noexcept;
 
   /**
@@ -96,6 +101,8 @@ class HAPReporter {
   };
 
   Policy* find(uint8_t classId, uint8_t instanceId, uint8_t portId) noexcept;
+  const Policy* find(uint8_t classId, uint8_t instanceId,
+                     uint8_t portId) const noexcept;
 
   /** True when `now` differs from `then` by more than the deadband allows. */
   static bool moved(const HValue& then, const HValue& now,

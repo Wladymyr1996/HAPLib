@@ -160,6 +160,23 @@ const HAPChild* HAPRouter::child(uint8_t index) const noexcept {
   return nullptr;
 }
 
+bool HAPRouter::setChildReportInterval(uint8_t index, uint16_t seconds) noexcept {
+  for (HAPChild& candidate : children_) {
+    if (candidate.index != index) {
+      continue;
+    }
+
+    if (candidate.reportIntervalSec == seconds) {
+      return false;
+    }
+
+    candidate.reportIntervalSec = seconds;
+    return true;
+  }
+
+  return false;
+}
+
 const HAPChild* HAPRouter::childByMac(const HAPMac& mac) const noexcept {
   for (const HAPChild& candidate : children_) {
     if (candidate.mac == mac) {

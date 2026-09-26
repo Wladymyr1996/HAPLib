@@ -46,6 +46,7 @@ void testAPolicyPerOutPort() noexcept {
 void testTheFirstReportGoesOutAtOnce() noexcept {
   HAPNode node;
   fillSensor(node);
+  node.instanceAt(0)->publish(0, HValue(21.5f));
 
   HAPReporter reporter(node);
   reporter.begin(60, HValue(0.2f));
@@ -58,6 +59,65 @@ void testTheFirstReportGoesOutAtOnce() noexcept {
   reporter.markReported();
   CHECK(!reporter.isDue());
   CHECK(reporter.nextDueInMs() > 0);
+}
+
+void testNothingMeasuredIsNothingToSay() noexcept {
+  HAPNode node;
+  fillSensor(node);
+
+  HAPReporter reporter(node);
+  reporter.begin(60, HValue(0.2f));
+
+  // The radio is up and no sensor has answered. A report now would carry
+  // nothing but Nulls - "no reading", which trips a failsafe at the far end -
+  // and the real one would follow a moment later as a second transmission.
+  CHECK(!reporter.isDue());
+
+  // The first reading is what makes it due.
+  node.instanceAt(0)->publish(0, HValue(21.5f));
+  CHECK(reporter.isDue());
+}
+
+void testAnUnmeasuredPortIsLeftOut() noexcept {
+  HAPNode node;
+  fillSensor(node);
+  node.instanceAt(0)->publish(0, HValue(21.5f));
+
+  HAPReporter reporter(node);
+  reporter.begin(60, HValue(0.2f));
+
+  // The hygrometer has not answered yet. Absent means "no news"; a Null entry
+  // would mean "the sensor failed", which is not what happened.
+  HAPReport report;
+  reporter.fillReport(report);
+
+  CHECK(report.entries.size() == 1);
+  CHECK(report.entries[0].classId == static_cast<uint8_t>(HAPClassId::Thermometer));
+  CHECK(report.entries[0].value.asFloat() == 21.5f);
+}
+
+void testALostReadingIsSentOnceAsNull() noexcept {
+  HAPNode node;
+  fillSensor(node);
+  node.instanceAt(0)->publish(0, HValue(21.5f));
+  node.instanceAt(1)->publish(0, HValue(44.0f));
+
+  HAPReporter reporter(node);
+  reporter.begin(3600, HValue(0.2f));
+  reporter.markReported();
+
+  // A port that HAD a reading and lost it is real news, and goes out as Null.
+  node.instanceAt(1)->publish(0, HValue());
+
+  HAPReport report;
+  reporter.fillReport(report);
+  CHECK(report.entries.size() == 2);
+  CHECK(report.entries[1].value.isNull());
+
+  // Once said, it is not said again: the far end already knows.
+  reporter.markReported();
+  reporter.fillReport(report);
+  CHECK(report.entries.size() == 1);
 }
 
 void testTheDeadbandSuppressesNoise() noexcept {
@@ -459,6 +519,9 @@ void runReportTests() noexcept {
 
   testAPolicyPerOutPort();
   testTheFirstReportGoesOutAtOnce();
+  testNothingMeasuredIsNothingToSay();
+  testAnUnmeasuredPortIsLeftOut();
+  testALostReadingIsSentOnceAsNull();
   testTheDeadbandSuppressesNoise();
   testASensorFallingSilentIsAlwaysNews();
   testAnyChangeCountsWithoutADeadband();

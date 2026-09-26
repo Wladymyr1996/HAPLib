@@ -127,6 +127,35 @@ class HAPStack {
   /** @brief Sends a report now, whether or not one was due. */
   bool sendReport() noexcept;
 
+  /**
+   * @brief Whether update() sends a report whenever the reporter says one is due.
+   *
+   * On by default, which is right for a mains node: every change goes out as
+   * it happens. A battery node usually knows better - it measures several
+   * things that finish at different moments, and letting each one trigger its
+   * own report costs a transmission apiece for what should be one frame. Such
+   * a node turns this off and calls sendReport() once it has the whole set.
+   *
+   * Nothing else is affected: requests are still answered, and the listen
+   * window still opens behind every report the application sends.
+   */
+  void setAutomaticReports(bool enabled) noexcept;
+
+  /**
+   * @brief Tells the root this node's current report interval, unasked.
+   *
+   * The interval normally reaches the root once, in the bind announcement. A
+   * node whose owner changes it afterwards has no other way to say so, and a
+   * master still measuring silence against the old one calls a node that now
+   * wakes hourly offline three minutes in.
+   *
+   * Sent as a SetPolicyResponse, which is exactly "the interval in force now":
+   * a root already adopts one into its model, so even a master that predates
+   * this call understands it.
+   * @return false when there is no parent, or the frame did not go out.
+   */
+  bool announceReportInterval() noexcept;
+
   bool ping(const HAPPath& path) noexcept;
   bool requestDescribe(const HAPPath& path, uint8_t fromPage = 0) noexcept;
   bool requestRead(const HAPPath& path, const HAPReadRequest& request) noexcept;
@@ -253,6 +282,7 @@ class HAPStack {
   uint32_t sent_ = 0;
   uint32_t received_ = 0;
   bool started_ = false;
+  bool automaticReports_ = true;
 
   WriteHook onWrite_;
   ValuesHook onValues_;

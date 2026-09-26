@@ -342,6 +342,13 @@ Ports are defined by the class and never transmitted: see [Links.md](Links.md).
 policy in force after the request, which a node may clamp to what its battery
 allows.
 
+A node may also send one **unasked**, with `result` Ok, when its own report
+interval changes after it was bound — a battery node whose owner picked a
+different wake period. The announcement is the only other place the interval
+travels, and it is never repeated. The root adopts `intervalSec` as the node's
+interval exactly as it does for an answer, and keeps it: in its model and, for a
+direct child, in its child table.
+
 ### 4.13 SetNameRequest
 
 | Size | Field | |

@@ -155,6 +155,16 @@ class HAPRouter {
   /** @brief For iteration; `position` is not an index. */
   const HAPChild* childAt(size_t position) const noexcept;
 
+  /**
+   * @brief Adopts the interval a child now says it reports at.
+   *
+   * The announcement is not the last word: a battery node whose owner changes
+   * its wake period says so later, and this table is what re-seeds the model
+   * after a reboot - so a stale entry here would bring the old interval back.
+   * @return true when the child exists and the value actually changed.
+   */
+  bool setChildReportInterval(uint8_t index, uint16_t seconds) noexcept;
+
   /** @brief True when the address is the parent or a known child. */
   bool isKnown(const HAPMac& mac) const noexcept;
 

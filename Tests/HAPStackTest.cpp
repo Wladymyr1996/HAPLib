@@ -162,6 +162,10 @@ void testTheMasterFillsInWhatItDoesNotKnow() noexcept {
   slave.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
   slave.node().addInstance(HAPClassId::Hygrometer, HAPName("Hum"));
 
+  // A reading, so it has something to report: a node that has measured nothing
+  // never transmits (HAPReporter), and the rename below is noticed on a report.
+  slave.node().instanceAt(0)->publish(0, HValue(21.5f));
+
   master.useModel();
   master.stack().begin(1);
   slave.stack().begin(1);
@@ -250,6 +254,10 @@ void testASleepingChildIsQueuedFor() noexcept {
   Device sensor(2, bus, HAPDeviceType::Sensor, HAPCaps::BatteryPowered,
                 "Bedroom", 1);
   sensor.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
+
+  // A reading, so it wakes and reports: a node that has measured nothing never
+  // transmits (HAPReporter), and a queued frame goes out only when it speaks.
+  sensor.node().instanceAt(0)->publish(0, HValue(21.5f));
 
   master.useModel();
   master.stack().begin(1);

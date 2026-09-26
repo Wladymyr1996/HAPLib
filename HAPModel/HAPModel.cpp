@@ -151,6 +151,12 @@ HAPRemoteNode* HAPModel::noteDescribe(
   node->descriptorRev = response.descriptorRev;
   node->name = response.nodeName;
 
+  // What it reports at now - the one way a master that missed the change
+  // learns it. An older node's pages carry nothing, and change nothing.
+  if (response.hasInterval) {
+    node->reportIntervalSec = response.reportIntervalSec;
+  }
+
   if (response.pageIndex == 0) {
     node->instances.clear();
     node->described = false;

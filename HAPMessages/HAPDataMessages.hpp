@@ -38,11 +38,30 @@ struct HAPDescribeResponse {
 
   etl::vector<HAPInstanceDescriptor, HAP_MAX_INSTANCES> instances;
 
+  /**
+   * How often the node reports NOW, on every page after the descriptors.
+   *
+   * The interval otherwise travels only at bind and in a one-off notice when it
+   * changes - which a master that was switched off at the time never hears. A
+   * master re-describes every node after its own restart, so carrying it here
+   * is what brings such a master up to date. An older node's pages end at the
+   * last descriptor; `hasInterval` says which kind this was.
+   */
+  uint16_t reportIntervalSec = 0;
+  bool hasInterval = false;
+
   void encode(HAPWriter& writer) const noexcept;
   bool decode(HAPReader& reader) noexcept;
 
   /** Bytes before the descriptors: five fixed plus the node's name. */
   static constexpr size_t kFixedSize = 5;
+
+  /**
+   * The interval after them. Two bytes cannot be a descriptor - the smallest is
+   * four fixed bytes and a name's length - so a decoder tells the two kinds of
+   * page apart by what is left, with no flag and no version.
+   */
+  static constexpr size_t kTrailerSize = 2;
 };
 
 /**

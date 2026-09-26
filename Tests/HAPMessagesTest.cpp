@@ -138,6 +138,55 @@ void testDescribeResponsePaging() noexcept {
   CHECK(parsed.instances.size() == 1);
   CHECK(parsed.pageIndex == 1);
   CHECK(std::strcmp(parsed.instances[0].name.c_str(), "Return") == 0);
+
+  // An older node's page: no interval after the descriptors, and none read.
+  CHECK(!parsed.hasInterval);
+}
+
+void testDescribeResponseCarriesTheInterval() noexcept {
+  HAPDescribeResponse page;
+  page.descriptorRev = 0x9C4A;
+  page.instanceCount = 1;
+  page.nodeName = "Bedroom";
+  page.reportIntervalSec = 900;
+  page.hasInterval = true;
+
+  HAPInstanceDescriptor instance;
+  instance.classId = static_cast<uint8_t>(HAPClassId::Thermometer);
+  instance.name = "Air";
+  page.instances.push_back(instance);
+
+  uint8_t buffer[HAP_MAX_PAYLOAD_SIZE];
+  const size_t size = encodeInto(page, buffer, sizeof(buffer));
+
+  // Two bytes more than the same page without it, at the very end.
+  HAPDescribeResponse old = page;
+  old.hasInterval = false;
+  uint8_t oldBuffer[HAP_MAX_PAYLOAD_SIZE];
+  CHECK(size == encodeInto(old, oldBuffer, sizeof(oldBuffer)) +
+                    HAPDescribeResponse::kTrailerSize);
+
+  HAPReader reader(buffer, size);
+  HAPDescribeResponse parsed;
+  CHECK(parsed.decode(reader));
+  CHECK(parsed.hasInterval);
+  CHECK(parsed.reportIntervalSec == 900);
+  CHECK(parsed.instances.size() == 1);
+  CHECK(std::strcmp(parsed.instances[0].name.c_str(), "Air") == 0);
+
+  // A page with no descriptors at all - the trailer straight after the name.
+  HAPDescribeResponse empty;
+  empty.nodeName = "Empty";
+  empty.reportIntervalSec = 0;
+  empty.hasInterval = true;
+  const size_t emptySize = encodeInto(empty, buffer, sizeof(buffer));
+
+  HAPReader emptyReader(buffer, emptySize);
+  HAPDescribeResponse emptyParsed;
+  CHECK(emptyParsed.decode(emptyReader));
+  CHECK(emptyParsed.hasInterval);
+  CHECK(emptyParsed.reportIntervalSec == 0);
+  CHECK(emptyParsed.instances.empty());
 }
 
 void testDescriptorSizeMatchesWhatItWrites() noexcept {
@@ -417,6 +466,7 @@ void runMessageTests() noexcept {
   testReportRefusesMoreEntriesThanItCanHold();
   testEmptyReportIsLegal();
   testDescribeResponsePaging();
+  testDescribeResponseCarriesTheInterval();
   testDescriptorSizeMatchesWhatItWrites();
   testDescriptorPageRefusesTooMany();
   testReadRequestWildcards();

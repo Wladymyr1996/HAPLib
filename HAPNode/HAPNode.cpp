@@ -184,12 +184,14 @@ HAPNode::Page HAPNode::pageAt(uint8_t page, size_t fixedSize) const noexcept {
 }
 
 uint8_t HAPNode::pageCount() const noexcept {
-  return pageAt(0, HAPDescribeResponse::kFixedSize).total;
+  return pageAt(0, HAPDescribeResponse::kFixedSize + HAPDescribeResponse::kTrailerSize).total;
 }
 
 bool HAPNode::fillDescribe(HAPDescribeResponse& response,
                            uint8_t page) const noexcept {
-  const Page slice = pageAt(page, HAPDescribeResponse::kFixedSize);
+  // The interval rides on every page, so every page pays for it.
+  const Page slice =
+      pageAt(page, HAPDescribeResponse::kFixedSize + HAPDescribeResponse::kTrailerSize);
 
   if (page >= slice.total) {
     return false;
@@ -200,6 +202,8 @@ bool HAPNode::fillDescribe(HAPDescribeResponse& response,
   response.pageIndex = page;
   response.pageCount = slice.total;
   response.nodeName = name_;
+  response.reportIntervalSec = reportIntervalSec_;
+  response.hasInterval = true;
   response.instances.clear();
 
   for (size_t i = 0; i < slice.count; ++i) {

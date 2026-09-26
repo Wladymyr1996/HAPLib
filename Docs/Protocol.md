@@ -281,6 +281,15 @@ The root's address for that child is the frame's accumulated `srcPath` with
 | 1 | pageCount |
 | n | NAME — the node's name |
 | … | instance descriptors |
+| 2 | reportIntervalSec — how often the node reports now; 0 = only on change |
+
+The interval, on every page, is how a master learns a change it missed - one
+announced while it was switched off - since it re-describes every node after a
+restart. An older node's pages end at the last descriptor. A decoder tells the
+two apart by what is left: exactly two bytes cannot be a descriptor, whose
+smallest form is four fixed bytes and a name's length. A decoder that predates
+the field refuses a page that carries it, so masters are updated before the
+nodes below them.
 
 ### 4.7 Report — and ReadResponse
 
@@ -347,7 +356,9 @@ interval changes after it was bound — a battery node whose owner picked a
 different wake period. The announcement is the only other place the interval
 travels, and it is never repeated. The root adopts `intervalSec` as the node's
 interval exactly as it does for an answer, and keeps it: in its model and, for a
-direct child, in its child table.
+direct child, in its child table. A node the message only passes through does
+the same before forwarding it - a controller measures its own children's silence
+too - and tells its application through `HAPStack::onReportInterval()`.
 
 ### 4.13 SetNameRequest
 

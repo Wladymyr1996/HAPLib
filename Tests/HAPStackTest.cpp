@@ -696,6 +696,133 @@ void testAThreeNodeChain() noexcept {
 }
 
 
+/** Counts what HAPStack::onReportInterval() said. */
+struct IntervalSeen {
+  void seen(const HAPPath& from, uint16_t seconds) noexcept {
+    path = from;
+    intervalSec = seconds;
+    ++calls;
+  }
+
+  HAPPath path;
+  uint16_t intervalSec = 0;
+  int calls = 0;
+};
+
+void testAMiddleNodeHearsItsChildsNewInterval() noexcept {
+  reset();
+
+  // The owner of a battery sensor under a controller changes its wake period.
+  // The announcement climbs to the root through the controller - which measures
+  // that sensor's silence too, and re-seeds from its own child table after a
+  // reboot, so it must not merely pass the news on.
+  HAPLoopbackBus bus;
+  Device root(1, bus, HAPDeviceType::Gateway, HAPCaps::CanBeMaster, "Gateway", 0);
+  Device middle(2, bus, HAPDeviceType::Controller, HAPCaps::CanBeMaster,
+                "Heating", 0);
+  Device leaf(3, bus, HAPDeviceType::Sensor, HAPCaps::None, "Bedroom", 60);
+
+  middle.node().addInstance(HAPClassId::Regulator, HAPName("Loop"));
+  leaf.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
+
+  root.useModel();
+  middle.useModel();
+  root.stack().begin(1);
+  middle.stack().begin(1);
+  leaf.stack().begin(1);
+
+  IntervalSeen atRoot;
+  IntervalSeen atMiddle;
+  root.stack().onReportInterval(
+      HAPStack::IntervalHook::create<IntervalSeen, &IntervalSeen::seen>(atRoot));
+  middle.stack().onReportInterval(
+      HAPStack::IntervalHook::create<IntervalSeen, &IntervalSeen::seen>(atMiddle));
+
+  CHECK(bindPair(bus, root, middle));
+  CHECK(bindPair(bus, middle, leaf));
+
+  Device* devices[] = {&root, &middle, &leaf};
+  run(bus, devices, 3, 6);
+
+  // A report passing through the middle node reaches its model as well.
+  leaf.node().instanceAt(0)->publish(0, HValue(21.5f));
+  run(bus, devices, 3, 8);
+  const HAPRemoteNode* heard = middle.model().find(pathOf(1));
+  REQUIRE(heard != nullptr);
+  const HValue* reading = heard->value(static_cast<uint8_t>(HAPClassId::Thermometer), 0, 0);
+  REQUIRE(reading != nullptr);
+  CHECK(reading->asFloat() == 21.5f);
+
+  leaf.node().setReportIntervalSec(15);
+  CHECK(leaf.stack().announceReportInterval());
+  run(bus, devices, 3, 8);
+
+  // The middle node: its child table, its model, and its application.
+  const HAPChild* child = middle.stack().router().child(1);
+  REQUIRE(child != nullptr);
+  CHECK(child->reportIntervalSec == 15);
+  const HAPRemoteNode* below = middle.model().find(pathOf(1));
+  REQUIRE(below != nullptr);
+  CHECK(below->reportIntervalSec == 15);
+  CHECK(atMiddle.calls == 1);
+  CHECK(atMiddle.intervalSec == 15);
+  CHECK(atMiddle.path == pathOf(1));
+
+  // And the root, two hops up, as before.
+  const HAPRemoteNode* far = root.model().find(pathOf(1, 1));
+  REQUIRE(far != nullptr);
+  CHECK(far->reportIntervalSec == 15);
+  CHECK(atRoot.calls == 1);
+  CHECK(atRoot.path == pathOf(1, 1));
+}
+
+void testAMasterThatMissedTheNoticeLearnsTheIntervalFromADescribe() noexcept {
+  reset();
+
+  // The sensor's owner changed its wake period while the master was switched
+  // off, so the one-off notice went nowhere. The master's next Describe - it
+  // re-describes every node after a restart - is what brings it up to date.
+  HAPLoopbackBus bus;
+  Device root(1, bus, HAPDeviceType::Gateway, HAPCaps::CanBeMaster, "Gateway", 0);
+  Device leaf(3, bus, HAPDeviceType::Sensor, HAPCaps::None, "Bedroom", 60);
+  leaf.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
+
+  root.useModel();
+  root.stack().begin(1);
+  leaf.stack().begin(1);
+
+  IntervalSeen seen;
+  root.stack().onReportInterval(
+      HAPStack::IntervalHook::create<IntervalSeen, &IntervalSeen::seen>(seen));
+
+  CHECK(bindPair(bus, root, leaf));
+  Device* devices[] = {&root, &leaf};
+  run(bus, devices, 2, 6);
+
+  const HAPChild* child = root.stack().router().child(1);
+  REQUIRE(child != nullptr);
+  CHECK(child->reportIntervalSec == 60);
+
+  leaf.node().setReportIntervalSec(600);  // no announceReportInterval()
+
+  CHECK(root.stack().requestDescribe(pathOf(1)));
+  run(bus, devices, 2, 6);
+
+  child = root.stack().router().child(1);
+  REQUIRE(child != nullptr);
+  CHECK(child->reportIntervalSec == 600);
+  const HAPRemoteNode* known = root.model().find(pathOf(1));
+  REQUIRE(known != nullptr);
+  CHECK(known->reportIntervalSec == 600);
+  CHECK(seen.calls == 1);
+  CHECK(seen.intervalSec == 600);
+
+  // Described again with nothing changed: no news, no hook.
+  CHECK(root.stack().requestDescribe(pathOf(1)));
+  run(bus, devices, 2, 6);
+  CHECK(seen.calls == 1);
+}
+
 void testAControllerAdoptedLastStillReportsItsChildren() noexcept {
   reset();
 
@@ -854,6 +981,8 @@ void runStackTests() noexcept {
   testAResetDeviceCanRejoinTheParentThatStillListsIt();
   testARebootedMasterStillKnowsItsGrandchildren();
   testAThreeNodeChain();
+  testAMiddleNodeHearsItsChildsNewInterval();
+  testAMasterThatMissedTheNoticeLearnsTheIntervalFromADescribe();
   testAControllerAdoptedLastStillReportsItsChildren();
   testALinkAtTheCommonAncestor();
   testASleepingNodeMaySleep();

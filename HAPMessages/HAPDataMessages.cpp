@@ -23,6 +23,10 @@ void HAPDescribeResponse::encode(HAPWriter& writer) const noexcept {
   for (const HAPInstanceDescriptor& instance : instances) {
     instance.encode(writer);
   }
+
+  if (hasInterval) {
+    writer.u16(reportIntervalSec);
+  }
 }
 
 bool HAPDescribeResponse::decode(HAPReader& reader) noexcept {
@@ -33,8 +37,17 @@ bool HAPDescribeResponse::decode(HAPReader& reader) noexcept {
   nodeName = reader.name();
 
   instances.clear();
+  reportIntervalSec = 0;
+  hasInterval = false;
 
   while (reader.ok() && reader.remaining() > 0) {
+    // Exactly the trailer left: the interval, not a descriptor - see kTrailerSize.
+    if (reader.remaining() == kTrailerSize) {
+      reportIntervalSec = reader.u16();
+      hasInterval = true;
+      break;
+    }
+
     if (instances.full()) {
       return false;
     }

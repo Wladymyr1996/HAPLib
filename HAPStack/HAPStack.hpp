@@ -213,6 +213,15 @@ class HAPStack {
       etl::delegate<void(const HAPPath& from, const HAPReport& report)>;
   void onValues(ValuesHook hook) noexcept;
 
+  /**
+   * @brief A node below now reports every @p intervalSec - it accepted a
+   *        policy, announced a new interval unasked, or described itself with
+   *        a different one than this node had. Delivered here or passing
+   *        through; already in the child table and the model.
+   */
+  using IntervalHook = etl::delegate<void(const HAPPath& from, uint16_t intervalSec)>;
+  void onReportInterval(IntervalHook hook) noexcept;
+
   /** @brief This node gained a child, or gained a parent. */
   void onChildBound(HAPBinder::ChildBoundHook hook) noexcept;
   void onBound(HAPBinder::BoundHook hook) noexcept;
@@ -228,6 +237,15 @@ class HAPStack {
   void deliverLocally(const HAPFrame& frame) noexcept;
   void handleRequest(const HAPFrame& frame) noexcept;
   void handleUpstreamNews(const HAPFrame& frame) noexcept;
+
+  /** A SetPolicyResponse from below: the child table, the model, the hook. */
+  void adoptPolicy(const HAPFrame& frame) noexcept;
+
+  /**
+   * A DescribeResponse from below: into the model, and its interval - when it
+   * carries one - into the child table and the hook, if it moved.
+   */
+  void adoptDescribe(const HAPPath& from, const HAPDescribeResponse& response) noexcept;
 
   /** Sends a frame to a child, or holds it if that child is asleep. */
   bool forwardToChild(HAPFrame& frame, uint8_t childIndex) noexcept;
@@ -286,6 +304,7 @@ class HAPStack {
 
   WriteHook onWrite_;
   ValuesHook onValues_;
+  IntervalHook onReportInterval_;
   OtaHook onOta_;
   HAPBinder::ChildBoundHook onChildBound_;
   HAPBinder::BoundHook onBound_;

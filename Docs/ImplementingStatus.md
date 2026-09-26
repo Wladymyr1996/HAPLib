@@ -356,7 +356,7 @@ Why this over the alternatives:
 | --- | --- |
 | a `ListChildren` request | a new message and a version bump, to re-derive what the master could simply have kept |
 | the MAC in every `Report` | six bytes for ever, on the one message the design keeps small, for a value that never changes |
-| the MAC in `DescribeResponse` | the closest runner-up: a restarted master re-describes everything anyway, so it would heal for free. Still a wire-format change, and it does not carry the interval. Worth folding in if that message is ever revised for another reason |
+| the MAC in `DescribeResponse` | the closest runner-up: a restarted master re-describes everything anyway, so it would heal for free. Still a wire-format change. The message has since been revised - it carries the node's report interval, as a two-byte trailer (Protocol.md 4.6) - so the MAC is the obvious next thing to fold in |
 
 **What this does not fix.** A master that has never been told - because the
 notice was lost in the air, not because it forgot - still has no way to ask. The

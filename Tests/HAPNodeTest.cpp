@@ -364,6 +364,13 @@ void testDescribeFitsInOnePage() noexcept {
   CHECK(response.descriptorRev == node.descriptorRev());
   CHECK(std::strcmp(response.nodeName.c_str(), "Bedroom") == 0);
 
+  // The interval in force now rides on the description.
+  CHECK(response.hasInterval);
+  CHECK(response.reportIntervalSec == 60);
+  node.setReportIntervalSec(900);
+  CHECK(node.fillDescribe(response, 0));
+  CHECK(response.reportIntervalSec == 900);
+
   // And it encodes inside one frame, which is what a page means.
   uint8_t buffer[HAP_MAX_PAYLOAD_SIZE];
   HAPWriter writer(buffer, sizeof(buffer));

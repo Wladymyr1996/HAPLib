@@ -150,6 +150,87 @@ void HAPStack::update() noexcept {
   }
 }
 
+void HAPStack::adoptPolicy(const HAPFrame& frame) noexcept {
+  // What the node actually TOOK, which is not always what was asked - and
+  // which the model has to adopt as the interval it measures a silence
+  // against. Without this, tightening a node's reporting is a way to have it
+  // declared offline for obeying: the master goes on expecting the interval
+  // announced at bind time and calls the node dead three of those later.
+  //
+  // The same message also arrives UNASKED, from a battery node whose owner
+  // changed its wake period - see announceReportInterval(). The two are
+  // handled alike, because they say the same thing: this is the interval
+  // now in force.
+  HAPReader reader(frame.payload, frame.payloadSize);
+  const HAPSetPolicyResponse response = HAPSetPolicyResponse::decode(reader);
+
+  if (!reader.ok()) {
+    return;
+  }
+
+  // A refusal promises nothing - see HAPModel::notePolicy() - so only an
+  // accepted interval is worth keeping anywhere.
+  const bool accepted = (response.result == HAPResult::Ok);
+
+  // Our own child's entry too, and it has to be kept: begin() re-seeds the
+  // model from the child table after every reboot, so a stale entry there
+  // would quietly put the old interval back.
+  if (accepted && frame.src.length() == 1 &&
+      router_.setChildReportInterval(frame.src.first(), response.intervalSec)) {
+    HAPStore::saveChildren(router_);
+  }
+
+  if (model_ != nullptr) {
+    const HAPRemoteNode* known = model_->find(frame.src);
+    const bool changed =
+        accepted && (known == nullptr || known->reportIntervalSec != response.intervalSec);
+
+    model_->notePolicy(frame.src, response);
+
+    // Written only when it moved. Most of these answer a master's own
+    // request with the value it already expected, and a flash write per
+    // answer would be a write for nothing.
+    if (changed) {
+      rememberModel();
+    }
+  }
+
+  if (accepted && onReportInterval_.is_valid()) {
+    onReportInterval_(frame.src, response.intervalSec);
+  }
+}
+
+void HAPStack::adoptDescribe(const HAPPath& from,
+                             const HAPDescribeResponse& response) noexcept {
+  const HAPRemoteNode* known = model_ != nullptr ? model_->find(from) : nullptr;
+  const bool modelMoved = response.hasInterval && known != nullptr &&
+                          known->reportIntervalSec != response.reportIntervalSec;
+
+  // Our own child's entry is kept for the same reason as in adoptPolicy():
+  // begin() re-seeds the model from it after every reboot.
+  const bool childMoved =
+      response.hasInterval && from.length() == 1 &&
+      router_.setChildReportInterval(from.first(), response.reportIntervalSec);
+
+  if (childMoved) {
+    HAPStore::saveChildren(router_);
+  }
+
+  if (model_ != nullptr) {
+    model_->noteDescribe(from, response);
+  }
+
+  if (modelMoved) {
+    rememberModel();
+  }
+
+  // Only a change is news: every node is re-described after every restart,
+  // and nearly always nothing moved.
+  if ((modelMoved || childMoved) && onReportInterval_.is_valid()) {
+    onReportInterval_(from, response.reportIntervalSec);
+  }
+}
+
 void HAPStack::setAutomaticReports(bool enabled) noexcept {
   automaticReports_ = enabled;
 }
@@ -203,11 +284,36 @@ void HAPStack::onFrame(const HAPMac& from, const uint8_t* data,
         HAPReport report;
 
         if (report.decode(reader)) {
+          // This node's own model hears it too: without it a middle node's
+          // model never sees its children speak, and sweepOffline() calls
+          // every one of them offline three intervals after boot.
+          if (model_ != nullptr) {
+            model_->noteReport(frame.src, report);
+          }
+
           links_.deliver(frame.src, report);
 
           if (onValues_.is_valid()) {
             onValues_(frame.src, report);
           }
+        }
+      }
+
+      // An interval passing through - a child's own announcement, or its
+      // answer to the root - is adopted here as well, and carries on. A middle
+      // node measures silence against it too, and re-seeds its model from its
+      // child table after a reboot.
+      if (frame.message() == HAPMessage::SetPolicyResponse) {
+        adoptPolicy(frame);
+      }
+
+      // A description passing through, asked for by the root, is as true here.
+      if (frame.message() == HAPMessage::DescribeResponse) {
+        HAPReader reader(frame.payload, frame.payloadSize);
+        HAPDescribeResponse response;
+
+        if (response.decode(reader)) {
+          adoptDescribe(frame.src, response);
         }
       }
 
@@ -305,8 +411,8 @@ void HAPStack::handleUpstreamNews(const HAPFrame& frame) noexcept {
 
     case HAPMessage::DescribeResponse: {
       HAPDescribeResponse response;
-      if (response.decode(reader) && model_ != nullptr) {
-        model_->noteDescribe(frame.src, response);
+      if (response.decode(reader)) {
+        adoptDescribe(frame.src, response);
       }
       break;
     }
@@ -319,51 +425,9 @@ void HAPStack::handleUpstreamNews(const HAPFrame& frame) noexcept {
       break;
     }
 
-    case HAPMessage::SetPolicyResponse: {
-      // What the node actually TOOK, which is not always what was asked - and
-      // which the model has to adopt as the interval it measures a silence
-      // against. Without this, tightening a node's reporting is a way to have it
-      // declared offline for obeying: the master goes on expecting the interval
-      // announced at bind time and calls the node dead three of those later.
-      //
-      // The same message also arrives UNASKED, from a battery node whose owner
-      // changed its wake period - see announceReportInterval(). The two are
-      // handled alike, because they say the same thing: this is the interval
-      // now in force.
-      const HAPSetPolicyResponse response = HAPSetPolicyResponse::decode(reader);
-
-      if (!reader.ok()) {
-        break;
-      }
-
-      // A refusal promises nothing - see HAPModel::notePolicy() - so only an
-      // accepted interval is worth keeping anywhere.
-      const bool accepted = (response.result == HAPResult::Ok);
-
-      // Our own child's entry too, and it has to be kept: begin() re-seeds the
-      // model from the child table after every reboot, so a stale entry there
-      // would quietly put the old interval back.
-      if (accepted && frame.src.length() == 1 &&
-          router_.setChildReportInterval(frame.src.first(), response.intervalSec)) {
-        HAPStore::saveChildren(router_);
-      }
-
-      if (model_ != nullptr) {
-        const HAPRemoteNode* known = model_->find(frame.src);
-        const bool changed =
-            accepted && (known == nullptr || known->reportIntervalSec != response.intervalSec);
-
-        model_->notePolicy(frame.src, response);
-
-        // Written only when it moved. Most of these answer a master's own
-        // request with the value it already expected, and a flash write per
-        // answer would be a write for nothing.
-        if (changed) {
-          rememberModel();
-        }
-      }
+    case HAPMessage::SetPolicyResponse:
+      adoptPolicy(frame);
       break;
-    }
 
     case HAPMessage::ChildAttached: {
       HAPChildAttached attached;
@@ -1085,6 +1149,7 @@ bool HAPStack::isBound() const noexcept { return router_.hasParent(); }
 
 void HAPStack::onWrite(WriteHook hook) noexcept { onWrite_ = hook; }
 void HAPStack::onValues(ValuesHook hook) noexcept { onValues_ = hook; }
+void HAPStack::onReportInterval(IntervalHook hook) noexcept { onReportInterval_ = hook; }
 void HAPStack::onOta(OtaHook hook) noexcept { onOta_ = hook; }
 
 void HAPStack::onChildBound(HAPBinder::ChildBoundHook hook) noexcept {

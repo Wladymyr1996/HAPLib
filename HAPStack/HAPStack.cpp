@@ -111,6 +111,38 @@ bool HAPStack::begin(uint8_t channel) noexcept {
     }
   }
 
+  // The child table is the truth about who is below; the model is a cache of
+  // it. An entry whose first hop is no child of this node any more - one
+  // forgotten while the mesh was not running, from a settings page - is an
+  // orphan: nothing can reach it, and left alone it would be counted, swept
+  // offline and shown for ever. Dropped here, with everything below it.
+  if (model_ != nullptr) {
+    size_t dropped = 0;
+
+    for (bool more = true; more;) {
+      more = false;
+
+      for (size_t i = 0; i < model_->size(); ++i) {
+        const HAPRemoteNode* node = model_->at(i);
+
+        if (node != nullptr && node->path.length() > 0 &&
+            router_.child(node->path.first()) == nullptr) {
+          const HAPPath orphan = node->path;
+          model_->forget(orphan);
+          ++dropped;
+          more = true;
+          break;
+        }
+      }
+    }
+
+    if (dropped > 0) {
+      HInfo("%u nodes below children this node no longer has - forgotten",
+            static_cast<unsigned>(dropped));
+      HAPStore::saveModel(*model_);
+    }
+  }
+
   reporter_.begin(node_.reportIntervalSec(), HValue());
 
   if (node_.isBatteryPowered() && node_.reportIntervalSec() != 0) {

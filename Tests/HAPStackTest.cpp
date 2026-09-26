@@ -831,6 +831,50 @@ void testAMasterThatMissedTheNoticeLearnsTheIntervalFromADescribe() noexcept {
   CHECK(seen.calls == 1);
 }
 
+void testAChildForgottenWhileOffLeavesNoOrphan() noexcept {
+  reset();
+
+  // A settings page removes a child from the stored table while the mesh is not
+  // running. The stored model still holds it; the next boot must not.
+  HAPLoopbackBus bus;
+  {
+    Device root(1, bus, HAPDeviceType::Gateway, HAPCaps::CanBeMaster, "Gateway", 0);
+    Device leaf(3, bus, HAPDeviceType::Sensor, HAPCaps::None, "Bedroom", 60);
+    leaf.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
+
+    root.useModel();
+    root.stack().begin(1);
+    leaf.stack().begin(1);
+    CHECK(bindPair(bus, root, leaf));
+
+    Device* devices[] = {&root, &leaf};
+    run(bus, devices, 2, 6);
+    REQUIRE(root.model().find(pathOf(1)) != nullptr);
+  }
+
+  HAPModel written;
+  CHECK(HAPStore::loadModel(written) == 1);
+
+  // What the page does: the child table without it.
+  HAPRouter table;
+  HAPStore::loadChildren(table);
+  CHECK(table.removeChild(1));
+  CHECK(HAPStore::saveChildren(table));
+
+  // One process, one store: the leaf's own bind is not the root's.
+  HAPStore::clearBind();
+
+  Device root(1, bus, HAPDeviceType::Gateway, HAPCaps::CanBeMaster, "Gateway", 0);
+  root.useModel();
+  CHECK(root.stack().begin(1));
+  CHECK(root.model().find(pathOf(1)) == nullptr);
+  CHECK(root.model().size() == 0);
+
+  // And the file too, so it does not come back at the boot after.
+  HAPModel after;
+  CHECK(HAPStore::loadModel(after) == 0);
+}
+
 void testAControllerAdoptedLastStillReportsItsChildren() noexcept {
   reset();
 
@@ -991,6 +1035,7 @@ void runStackTests() noexcept {
   testAThreeNodeChain();
   testAMiddleNodeHearsItsChildsNewInterval();
   testAMasterThatMissedTheNoticeLearnsTheIntervalFromADescribe();
+  testAChildForgottenWhileOffLeavesNoOrphan();
   testAControllerAdoptedLastStillReportsItsChildren();
   testALinkAtTheCommonAncestor();
   testASleepingNodeMaySleep();

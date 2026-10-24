@@ -111,24 +111,23 @@ constexpr const char* HAPLibVersion() noexcept {
 // them.
 
 /** Protocol version carried in every frame's header. */
-#define HAP_VERSION 1
+#define HAP_VERSION 2
 
 /** `'H'`, `'A'` - the first two bytes of every frame. */
 #define HAP_MAGIC_0 0x48
 #define HAP_MAGIC_1 0x41
 
-/** Fixed header size: magic, version, type, flags, seq, path lengths, two paths. */
-#define HAP_HEADER_SIZE 18
+/** Fixed header size: magic, version, type, flags, seq, destination id, source id. */
+#define HAP_HEADER_SIZE 23
 
 /**
  * The largest frame that may be transmitted.
  *
- * ESP-NOW v2 carries 1470 bytes, but a v1 device can only receive a v2 packet if
- * it is <= 250 - so designing to 250 keeps every node interoperable whatever IDF
- * it was built against. Nothing in the protocol needs more; longer responses
- * paginate instead (see HAPFlags::More).
+ * The header plus the 232-byte payload budget every message was designed to, so
+ * a frame size still fits a byte. Nothing in the protocol needs more; longer
+ * responses paginate instead (see HAPFlags::More).
  */
-#define HAP_MAX_FRAME_SIZE 250
+#define HAP_MAX_FRAME_SIZE 255
 
 /** What is left of a frame once the header has taken its share: 232 bytes. */
 #define HAP_MAX_PAYLOAD_SIZE (HAP_MAX_FRAME_SIZE - HAP_HEADER_SIZE)
@@ -163,7 +162,7 @@ constexpr const char* HAPLibVersion() noexcept {
 #define HAP_KEY_LEN 16
 
 /**
- * Length of a MAC address. Still the width of the identity the v1 frames and
+ * Length of a MAC address. Still the width of the identity ChildAttached and
  * the stored state carry; a HAPNodeId is wider and converts to and from it.
  */
 #define HAP_MAC_LEN 6
@@ -328,14 +327,12 @@ namespace HAPFlags {
 constexpr uint8_t None = 0x00;
 /** The originator wants an end-to-end acknowledgement. */
 constexpr uint8_t AckRequested = 0x01;
-/** Route toward the root; destPath is unused. */
-constexpr uint8_t Upstream = 0x02;
 /** Another frame of this response follows. */
 constexpr uint8_t More = 0x04;
 /** Delivered out of a parent's queue rather than sent live. */
 constexpr uint8_t Queued = 0x08;
-/** Written as zero, ignored on receipt - this is how version 1 grows. */
-constexpr uint8_t Reserved = 0xF0;
+/** Written as zero, ignored on receipt - this is how the format grows. Includes the retired 0x02. */
+constexpr uint8_t Reserved = 0xF2;
 }  // namespace HAPFlags
 
 /** What a node says about itself when it announces. */

@@ -33,9 +33,9 @@ const HValue* HAPRemoteNode::value(uint8_t classId, uint8_t instanceId,
 // Learning
 // ---------------------------------------------------------------------------
 
-HAPRemoteNode* HAPModel::findMutable(const HAPPath& path) noexcept {
+HAPRemoteNode* HAPModel::findMutable(const HAPNodeId& id) noexcept {
   for (HAPRemoteNode& node : nodes_) {
-    if (node.path == path) {
+    if (node.id == id) {
       return &node;
     }
   }
@@ -43,9 +43,9 @@ HAPRemoteNode* HAPModel::findMutable(const HAPPath& path) noexcept {
   return nullptr;
 }
 
-HAPRemoteNode* HAPModel::observe(const HAPPath& path) noexcept {
+HAPRemoteNode* HAPModel::observe(const HAPNodeId& id) noexcept {
   bool isNew = false;
-  HAPRemoteNode* node = touch(path, isNew);
+  HAPRemoteNode* node = touch(id, isNew);
 
   if (node != nullptr) {
     announceIfNew(isNew, *node);
@@ -54,10 +54,16 @@ HAPRemoteNode* HAPModel::observe(const HAPPath& path) noexcept {
   return node;
 }
 
-HAPRemoteNode* HAPModel::touch(const HAPPath& path, bool& isNew) noexcept {
+HAPRemoteNode* HAPModel::touch(const HAPNodeId& id, bool& isNew) noexcept {
   isNew = false;
 
-  HAPRemoteNode* node = findMutable(path);
+  // A node with no id cannot be told from any other; decode() already refuses
+  // a frame without a source, so this is only a guard.
+  if (id.isZero()) {
+    return nullptr;
+  }
+
+  HAPRemoteNode* node = findMutable(id);
   const uint32_t now = HSystemUtils::millis();
 
   if (node != nullptr) {
@@ -75,12 +81,12 @@ HAPRemoteNode* HAPModel::touch(const HAPPath& path, bool& isNew) noexcept {
 
   if (nodes_.full()) {
     HWarning("no room for %s - the model holds %u nodes",
-             path.toString().c_str(), HAP_MODEL_MAX_NODES);
+             id.toString().c_str(), HAP_MODEL_MAX_NODES);
     return nullptr;
   }
 
   HAPRemoteNode fresh;
-  fresh.path = path;
+  fresh.id = id;
   fresh.lastHeardMs = now;
   fresh.online = true;
 
@@ -97,7 +103,7 @@ void HAPModel::announceIfNew(bool isNew, const HAPRemoteNode& node) noexcept {
 
   // Fired HERE - after the caller has filled the record in - and not from
   // touch(), which is where it used to be. A newly created entry holds nothing
-  // but its path, so a hook called at that moment saw an all-zero MAC, no
+  // but its id, so a hook called at that moment saw an all-zero MAC, no
   // capabilities and an interval of zero, and then the real values were written
   // behind its back. On the bench that printed
   // `NODE 1 = 00:00:00:00:00:00 Sensor [-] every 0s` for a device whose MAC and
@@ -106,17 +112,17 @@ void HAPModel::announceIfNew(bool isNew, const HAPRemoteNode& node) noexcept {
   // It matters most for exactly the case it broke: ChildAttached is the only
   // message that carries a MAC, so it is the one a user interface needs in
   // order to say which device appeared.
-  HInfo("discovered %s", node.path.toString().c_str());
+  HInfo("discovered %s", node.id.toString().c_str());
 
   if (onDiscovered_.is_valid()) {
     onDiscovered_(node);
   }
 }
 
-HAPRemoteNode* HAPModel::noteReport(const HAPPath& path,
+HAPRemoteNode* HAPModel::noteReport(const HAPNodeId& id,
                                     const HAPReport& report) noexcept {
   bool isNew = false;
-  HAPRemoteNode* node = touch(path, isNew);
+  HAPRemoteNode* node = touch(id, isNew);
   if (node == nullptr) {
     return nullptr;
   }
@@ -141,9 +147,9 @@ HAPRemoteNode* HAPModel::noteReport(const HAPPath& path,
 }
 
 HAPRemoteNode* HAPModel::noteDescribe(
-    const HAPPath& path, const HAPDescribeResponse& response) noexcept {
+    const HAPNodeId& id, const HAPDescribeResponse& response) noexcept {
   bool isNew = false;
-  HAPRemoteNode* node = touch(path, isNew);
+  HAPRemoteNode* node = touch(id, isNew);
   if (node == nullptr) {
     return nullptr;
   }
@@ -181,10 +187,10 @@ HAPRemoteNode* HAPModel::noteDescribe(
   return node;
 }
 
-HAPRemoteNode* HAPModel::notePong(const HAPPath& path,
+HAPRemoteNode* HAPModel::notePong(const HAPNodeId& id,
                                   const HAPPong& pong) noexcept {
   bool isNew = false;
-  HAPRemoteNode* node = touch(path, isNew);
+  HAPRemoteNode* node = touch(id, isNew);
   if (node == nullptr) {
     return nullptr;
   }
@@ -196,9 +202,9 @@ HAPRemoteNode* HAPModel::notePong(const HAPPath& path,
 }
 
 HAPRemoteNode* HAPModel::notePolicy(
-    const HAPPath& path, const HAPSetPolicyResponse& response) noexcept {
+    const HAPNodeId& id, const HAPSetPolicyResponse& response) noexcept {
   bool isNew = false;
-  HAPRemoteNode* node = touch(path, isNew);
+  HAPRemoteNode* node = touch(id, isNew);
   if (node == nullptr) {
     return nullptr;
   }
@@ -214,36 +220,19 @@ HAPRemoteNode* HAPModel::notePolicy(
 }
 
 HAPRemoteNode* HAPModel::noteChildAttached(
-    const HAPPath& parentPath, const HAPChildAttached& attached) noexcept {
-  HAPPath path = parentPath;
-
-  if (!path.append(attached.childIndex)) {
-    HWarning("%s + child %u is deeper than the tree may be",
-             parentPath.toString().c_str(), attached.childIndex);
-    return nullptr;
-  }
-
+    const HAPChildAttached& attached) noexcept {
   // ChildAttached carries a bare six bytes; everything above the wire works in
-  // ids that can be compared and printed.
+  // ids that can be compared and printed. The id is the key, so a device that
+  // turns up under a new parent is the same entry, not a second one.
   const HAPNodeId id = HAPNodeId::fromMac(attached.mac);
 
-  // The same device at a different path is one node re-bound elsewhere, not a
-  // second node. Keeping both would show one thing twice, and a link pointing
-  // at the old address would keep failing silently.
-  const HAPRemoteNode* previous = findById(id);
-  if (previous != nullptr && previous->path != path) {
-    HInfo("%s moved from %s to %s", id.toString().c_str(),
-          previous->path.toString().c_str(), path.toString().c_str());
-    forget(previous->path);
-  }
-
   bool isNew = false;
-  HAPRemoteNode* node = touch(path, isNew);
+  HAPRemoteNode* node = touch(id, isNew);
   if (node == nullptr) {
     return nullptr;
   }
 
-  node->id = id;
+  node->announced = true;
   node->deviceType = attached.deviceType;
   node->capabilities = attached.capabilities;
   node->reportIntervalSec = attached.reportIntervalSec;
@@ -253,16 +242,16 @@ HAPRemoteNode* HAPModel::noteChildAttached(
   return node;
 }
 
-HAPRemoteNode* HAPModel::restore(const HAPPath& path, const HAPNodeId& id,
-                                 HAPDeviceType deviceType, uint8_t capabilities,
+HAPRemoteNode* HAPModel::restore(const HAPNodeId& id, HAPDeviceType deviceType,
+                                 uint8_t capabilities,
                                  uint16_t reportIntervalSec) noexcept {
   bool isNew = false;
-  HAPRemoteNode* node = touch(path, isNew);
+  HAPRemoteNode* node = touch(id, isNew);
   if (node == nullptr) {
     return nullptr;
   }
 
-  node->id = id;
+  node->announced = true;
   node->deviceType = deviceType;
   node->capabilities = capabilities;
   node->reportIntervalSec = reportIntervalSec;
@@ -291,23 +280,7 @@ const HAPRemoteNode* HAPModel::at(size_t position) const noexcept {
   return position < nodes_.size() ? &nodes_[position] : nullptr;
 }
 
-const HAPRemoteNode* HAPModel::find(const HAPPath& path) const noexcept {
-  for (const HAPRemoteNode& node : nodes_) {
-    if (node.path == path) {
-      return &node;
-    }
-  }
-
-  return nullptr;
-}
-
-const HAPRemoteNode* HAPModel::findById(const HAPNodeId& id) const noexcept {
-  if (id.isZero()) {
-    // Every node starts with a zero address, so matching on one would return
-    // whichever has not been described yet.
-    return nullptr;
-  }
-
+const HAPRemoteNode* HAPModel::find(const HAPNodeId& id) const noexcept {
   for (const HAPRemoteNode& node : nodes_) {
     if (node.id == id) {
       return &node;
@@ -317,10 +290,10 @@ const HAPRemoteNode* HAPModel::findById(const HAPNodeId& id) const noexcept {
   return nullptr;
 }
 
-bool HAPModel::nextDescribeNeeded(HAPPath& path) const noexcept {
+bool HAPModel::nextDescribeNeeded(HAPNodeId& id) const noexcept {
   for (const HAPRemoteNode& node : nodes_) {
     if (node.needsDescribe()) {
-      path = node.path;
+      id = node.id;
       return true;
     }
   }
@@ -366,7 +339,7 @@ size_t HAPModel::sweepOffline() noexcept {
     node.online = false;
     ++changed;
 
-    HWarning("%s has missed %u reports", node.path.toString().c_str(),
+    HWarning("%s has missed %u reports", node.id.toString().c_str(),
              HAP_OFFLINE_INTERVALS);
 
     if (onPresenceChanged_.is_valid()) {
@@ -377,9 +350,9 @@ size_t HAPModel::sweepOffline() noexcept {
   return changed;
 }
 
-bool HAPModel::forget(const HAPPath& path) noexcept {
+bool HAPModel::forget(const HAPNodeId& id) noexcept {
   for (auto it = nodes_.begin(); it != nodes_.end(); ++it) {
-    if (it->path == path) {
+    if (it->id == id) {
       nodes_.erase(it);
       return true;
     }

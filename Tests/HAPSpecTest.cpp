@@ -13,8 +13,14 @@
  * This is what stops the specification and the implementation drifting apart.
  * A protocol document full of byte dumps is worth exactly as much as the last
  * time somebody checked them by hand - so nothing here is checked by hand.
- * Every expected string below is copied out of a document, and when the two
- * disagree, one of them is wrong and this suite says which bytes.
+ * Every expected string below is written out byte by byte, and when the
+ * encoder disagrees, one of them is wrong and this suite says which bytes.
+ *
+ * The frames follow Docs/ThreadDesign.md section 5 (version 2: a 23-byte
+ * header with the destination id at offset 7 and the source id at 15). The
+ * documents Protocol.md and Links.md still print version 1 headers until they
+ * are rewritten, so for now only the payloads match them; the headers here are
+ * derived by hand from the layout, never from the encoder.
  *
  * Each example goes both ways: built from a structure and compared to the
  * document, then decoded from those same bytes and checked field by field. An
@@ -25,22 +31,38 @@
 namespace {
 
 /** The network used by every example: Docs/Protocol.md section 8. */
-constexpr uint8_t kControllerIsChildOfGateway = 1;
 constexpr uint8_t kThermometerIsChildOfController = 2;
-constexpr uint8_t kLampIsChildOfController = 4;
+
+/**
+ * The four nodes, by id. The thermometer's MAC is the one ChildAttached prints
+ * (24:6F:28:AA:BB:CC); the others follow the same pattern.
+ */
+const uint8_t kGatewayBytes[HAP_NODE_ID_LEN] = {0x24, 0x6F, 0x28, 0xFF,
+                                                0xFE, 0x00, 0x00, 0x01};
+const uint8_t kControllerBytes[HAP_NODE_ID_LEN] = {0x24, 0x6F, 0x28, 0xFF,
+                                                   0xFE, 0x00, 0x00, 0x02};
+const uint8_t kThermometerBytes[HAP_NODE_ID_LEN] = {0x24, 0x6F, 0x28, 0xFF,
+                                                    0xFE, 0xAA, 0xBB, 0xCC};
+const uint8_t kLampBytes[HAP_NODE_ID_LEN] = {0x24, 0x6F, 0x28, 0xFF,
+                                             0xFE, 0x00, 0x00, 0x04};
+
+const HAPNodeId kGateway = HAPNodeId::fromBytes(kGatewayBytes);
+const HAPNodeId kController = HAPNodeId::fromBytes(kControllerBytes);
+const HAPNodeId kThermometer = HAPNodeId::fromBytes(kThermometerBytes);
+const HAPNodeId kLamp = HAPNodeId::fromBytes(kLampBytes);
 
 constexpr uint16_t kDescriptorRev = 0x9C4A;
 
 /** Wraps a payload in a frame and returns what went on the wire. */
 size_t buildFrame(HAPMessage type, uint8_t flags, uint16_t seq,
-                  const HAPPath& dest, const HAPPath& src,
+                  const HAPNodeId& dst, const HAPNodeId& src,
                   const uint8_t* payload, size_t payloadSize, uint8_t* out,
                   size_t capacity) noexcept {
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(type);
   frame.flags = flags;
   frame.seq = seq;
-  frame.dest = dest;
+  frame.dst = dst;
   frame.src = src;
   frame.payload = payload;
   frame.payloadSize = static_cast<uint8_t>(payloadSize);
@@ -64,7 +86,9 @@ HAPInstanceDescriptor descriptor(HAPClassId classId, uint8_t instanceId,
 // -------------------------------------------------------------------------
 
 const char* kBindAnnounce =
-    "4841 01 01 00 0100 00 0000000000 0000000000"
+    "4841 02 01 00 0100"       // magic, version 2, BindAnnounce, flags, seq 1
+    "0000000000000000"         // dst at 7: nobody is addressed yet
+    "246F28FFFEAABBCC"         // src at 15: the thermometer
     "00"
     "01"
     "3C00"
@@ -100,10 +124,10 @@ void testBindAnnounce() noexcept {
 
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size =
-      buildFrame(HAPMessage::BindAnnounce, HAPFlags::None, 1, HAPPath(),
-                 HAPPath(), payload, writer.size(), buffer, sizeof(buffer));
+      buildFrame(HAPMessage::BindAnnounce, HAPFlags::None, 1, HAPNodeId::zero(),
+                 kThermometer, payload, writer.size(), buffer, sizeof(buffer));
 
-  CHECK(size == 60);
+  CHECK(size == 65);
   CHECK_BYTES(buffer, size, kBindAnnounce);
 
   // And back: the document's own bytes, parsed.
@@ -113,7 +137,8 @@ void testBindAnnounce() noexcept {
   HAPFrame frame;
   CHECK(HAPFrame::decode(wire, wireSize, frame) == HAPFrameError::None);
   CHECK(frame.message() == HAPMessage::BindAnnounce);
-  CHECK(!frame.isUpstream());  // It has no parent yet.
+  CHECK(frame.isForMaster());  // It has no parent yet, so nobody is named.
+  CHECK(frame.src == kThermometer);
 
   HAPReader reader(frame.payload, frame.payloadSize);
   HAPBindAnnounce parsed;
@@ -146,15 +171,17 @@ void testBindAcceptCarriesTheKey() noexcept {
 
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size =
-      buildFrame(HAPMessage::BindAccept, HAPFlags::None, 5, HAPPath(), HAPPath(),
-                 payload, writer.size(), buffer, sizeof(buffer));
+      buildFrame(HAPMessage::BindAccept, HAPFlags::None, 5, kThermometer,
+                 kController, payload, writer.size(), buffer, sizeof(buffer));
 
   // The document prints the key as an ellipsis, so only its length is fixed
   // here - but the frame's total size is stated, and that is what catches a
   // field added or dropped.
-  CHECK(size == 47);
+  CHECK(size == 52);
   CHECK_BYTES(buffer, HAP_HEADER_SIZE + 2,
-              "4841 01 02 00 0500 00 0000000000 0000000000"
+              "4841 02 02 00 0500"
+              "246F28FFFEAABBCC"    // dst at 7: the thermometer
+              "246F28FFFE000002"    // src at 15: the controller
               "02 01");
 
   HAPReader reader(payload, writer.size());
@@ -177,12 +204,14 @@ void testBindConfirm() noexcept {
 
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size =
-      buildFrame(HAPMessage::BindConfirm, HAPFlags::Upstream, 2, HAPPath(),
-                 HAPPath(), payload, writer.size(), buffer, sizeof(buffer));
+      buildFrame(HAPMessage::BindConfirm, HAPFlags::None, 2, kController,
+                 kThermometer, payload, writer.size(), buffer, sizeof(buffer));
 
-  CHECK(size == 20);
+  CHECK(size == 25);
   CHECK_BYTES(buffer, size,
-              "4841 01 03 02 0200 00 0000000000 0000000000"
+              "4841 02 03 00 0200"
+              "246F28FFFE000002"    // dst at 7: the parent
+              "246F28FFFEAABBCC"    // src at 15: the thermometer
               "4A9C");
 }
 
@@ -204,50 +233,46 @@ void testChildAttached() noexcept {
 
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size =
-      buildFrame(HAPMessage::ChildAttached, HAPFlags::Upstream, 6, HAPPath(),
-                 HAPPath(), payload, writer.size(), buffer, sizeof(buffer));
+      buildFrame(HAPMessage::ChildAttached, HAPFlags::None, 6, HAPNodeId::zero(),
+                 kController, payload, writer.size(), buffer, sizeof(buffer));
 
+  CHECK(size == 23 + 13);
   CHECK_BYTES(buffer, size,
-              "4841 01 04 02 0600 00 0000000000 0000000000"
+              "4841 02 04 00 0600"
+              "0000000000000000"    // dst at 7: the master
+              "246F28FFFE000002"    // src at 15: the controller, who is telling
               "02"
               "00 01"
               "3C00"
               "4A9C"
               "246F28AABBCC");
 
-  // The gateway receives it from ITS child 1, so the new node is at 1.2 - the
-  // accumulated source path with the child index inside appended.
+  // The gateway learns who spoke from the source and who is new from the MAC
+  // inside: the thermometer, whatever the path the notice took.
   HAPFrame atGateway;
   CHECK(HAPFrame::decode(buffer, size, atGateway) == HAPFrameError::None);
-  CHECK(atGateway.src.prepend(kControllerIsChildOfGateway));
+  CHECK(atGateway.src == kController);
 
-  HAPPath discovered = atGateway.src;
-  CHECK(discovered.append(kThermometerIsChildOfController));
-  CHECK(std::strcmp(discovered.toString().c_str(), "1.2") == 0);
+  HAPReader reader(atGateway.payload, atGateway.payloadSize);
+  HAPChildAttached parsed;
+  CHECK(parsed.decode(reader));
+  CHECK(HAPNodeId::fromMac(parsed.mac) == HAPNodeId::fromMac(thermometerMac));
+  CHECK(parsed.childIndex == kThermometerIsChildOfController);
 }
 
 // -------------------------------------------------------------------------
 // Docs/Protocol.md section 8.2 - a report going up
 // -------------------------------------------------------------------------
 
-/** The three stages the same frame passes through, as the documents print them. */
-const char* kReportAtThermometer =
-    "4841 01 12 02 0701 00 0000000000 0000000000"
-    "4A9C"
-    "02"
-    "01 00 00 03 0000AC41"
-    "02 01 00 03 00003042";
-
-const char* kReportAtController =
-    "4841 01 12 02 0701 01 0000000000 0200000000"
-    "4A9C"
-    "02"
-    "01 00 00 03 0000AC41"
-    "02 01 00 03 00003042";
-
-const char* kReportAtGateway =
-    "4841 01 12 02 0701 02 0000000000 0102000000"
-    "4A9C"
+/**
+ * The same bytes at every hop: a relay forwards a frame without rewriting it,
+ * and the source is the originator's id wherever it is read.
+ */
+const char* kReport =
+    "4841 02 12 00 0701"       // magic, version 2, Report, flags, seq 0x0107
+    "0000000000000000"         // dst at 7: the master
+    "246F28FFFEAABBCC"         // src at 15: the thermometer
+    "4A9C"                     // payload at 23
     "02"
     "01 00 00 03 0000AC41"
     "02 01 00 03 00003042";
@@ -267,46 +292,44 @@ void testReportLeavesTheSensor() noexcept {
 
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size =
-      buildFrame(HAPMessage::Report, HAPFlags::Upstream, 0x0107, HAPPath(),
-                 HAPPath(), payload, writer.size(), buffer, sizeof(buffer));
+      buildFrame(HAPMessage::Report, HAPFlags::None, 0x0107, HAPNodeId::zero(),
+                 kThermometer, payload, writer.size(), buffer, sizeof(buffer));
 
-  CHECK(size == 37);
-  CHECK_BYTES(buffer, size, kReportAtThermometer);
+  CHECK(size == 42);
+  CHECK_BYTES(buffer, size, kReport);
 }
 
 void testReportClimbsTwoHops() noexcept {
   uint8_t atThermometer[HAP_MAX_FRAME_SIZE];
-  const size_t size =
-      HAPTest::parseHex(kReportAtThermometer, atThermometer, sizeof(atThermometer));
-  CHECK(size == 37);
+  const size_t size = HAPTest::parseHex(kReport, atThermometer, sizeof(atThermometer));
+  CHECK(size == 42);
 
-  // The controller: it arrived from child 2, so that is what goes on the front.
+  // The controller: it arrived from the thermometer, is for the master, and is
+  // passed on exactly as it came.
   HAPFrame frame;
   CHECK(HAPFrame::decode(atThermometer, size, frame) == HAPFrameError::None);
-  CHECK(frame.isUpstream());
-  CHECK(frame.src.isEmpty());
-  CHECK(frame.src.prepend(kThermometerIsChildOfController));
+  CHECK(frame.isForMaster());
+  CHECK(frame.src == kThermometer);
 
   uint8_t atController[HAP_MAX_FRAME_SIZE];
   const size_t controllerSize = frame.encode(atController, sizeof(atController));
   CHECK(controllerSize == size);
-  CHECK_BYTES(atController, controllerSize, kReportAtController);
+  CHECK_BYTES(atController, controllerSize, kReport);
 
-  // The gateway: it arrived from child 1.
+  // The gateway: the same again. Nothing is prepended on the way up any more.
   HAPFrame climbing;
   CHECK(HAPFrame::decode(atController, controllerSize, climbing) ==
         HAPFrameError::None);
-  CHECK(climbing.src.prepend(kControllerIsChildOfGateway));
 
   uint8_t atGateway[HAP_MAX_FRAME_SIZE];
   const size_t gatewaySize = climbing.encode(atGateway, sizeof(atGateway));
-  CHECK_BYTES(atGateway, gatewaySize, kReportAtGateway);
+  CHECK_BYTES(atGateway, gatewaySize, kReport);
 
-  // The invariant the whole design rests on: at every node, the source path is
-  // the downward path from THAT node back to the origin.
+  // The invariant the design rests on now: the source is the originator, at
+  // every node it passes.
   HAPFrame arrived;
   CHECK(HAPFrame::decode(atGateway, gatewaySize, arrived) == HAPFrameError::None);
-  CHECK(std::strcmp(arrived.src.toString().c_str(), "1.2") == 0);
+  CHECK(arrived.src == kThermometer);
 
   // And the payload survived the journey untouched - a frame is relayed, not
   // rewritten.
@@ -330,7 +353,7 @@ void testReportClimbsTwoHops() noexcept {
 // Docs/Protocol.md section 8.3 - a command going down
 // -------------------------------------------------------------------------
 
-void testCommandDescends() noexcept {
+void testCommandGoesStraightToTheLamp() noexcept {
   const HAPWriteRequest request(static_cast<uint8_t>(HAPClassId::Lamp), 0, 0,
                                 HValue(true));
 
@@ -339,36 +362,26 @@ void testCommandDescends() noexcept {
   request.encode(writer);
   CHECK(writer.ok());
 
-  // The gateway resolved hop 1 itself, so what it emits already carries only
-  // the remainder of the address.
-  const uint8_t toLamp[] = {kLampIsChildOfController};
-
-  uint8_t atController[HAP_MAX_FRAME_SIZE];
-  const size_t size = buildFrame(
-      HAPMessage::WriteRequest, HAPFlags::AckRequested, 0x0020,
-      HAPPath::fromBytes(toLamp, 1), HAPPath(), payload, writer.size(),
-      atController, sizeof(atController));
-
-  CHECK_BYTES(atController, size,
-              "4841 01 15 01 2000 10 0400000000 0000000000"
-              "11 00 00 01 01");
-
-  // The controller eats hop 4, and an empty destination means "for you".
-  HAPFrame forwarding;
-  CHECK(HAPFrame::decode(atController, size, forwarding) == HAPFrameError::None);
-  CHECK(forwarding.dest.first() == kLampIsChildOfController);
-  CHECK(forwarding.dest.shift());
-  CHECK(forwarding.dest.isEmpty());
-
+  // The gateway addresses the lamp by id and sends it there: no hop is eaten by
+  // anyone on the way, because nobody is on the way.
   uint8_t atLamp[HAP_MAX_FRAME_SIZE];
-  const size_t lampSize = forwarding.encode(atLamp, sizeof(atLamp));
+  const size_t lampSize = buildFrame(
+      HAPMessage::WriteRequest, HAPFlags::AckRequested, 0x0020, kLamp, kGateway,
+      payload, writer.size(), atLamp, sizeof(atLamp));
+
+  CHECK(lampSize == 28);
   CHECK_BYTES(atLamp, lampSize,
-              "4841 01 15 01 2000 00 0000000000 0000000000"
-              "11 00 00 01 01");
+              "4841 02 15 01 2000"   // magic, version 2, WriteRequest, flags, seq
+              "246F28FFFE000004"     // dst at 7: the lamp
+              "246F28FFFE000001"     // src at 15: the gateway
+              "11 00 00 01 01");     // payload at 23
 
   // What the lamp makes of it.
   HAPFrame arrived;
   CHECK(HAPFrame::decode(atLamp, lampSize, arrived) == HAPFrameError::None);
+  CHECK(arrived.dst == kLamp);
+  CHECK(arrived.src == kGateway);
+  CHECK(!arrived.isForMaster());
   HAPReader reader(arrived.payload, arrived.payloadSize);
   const HAPWriteRequest parsed = HAPWriteRequest::decode(reader);
   CHECK(reader.ok());
@@ -387,19 +400,17 @@ void testWriteResponseClimbsBack() noexcept {
   HAPWriter writer(payload, sizeof(payload));
   response.encode(writer);
 
-  HAPPath src;
-  CHECK(src.prepend(kLampIsChildOfController));
-  CHECK(src.prepend(kControllerIsChildOfGateway));
-
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
-  const size_t size = buildFrame(HAPMessage::WriteResponse, HAPFlags::Upstream,
+  const size_t size = buildFrame(HAPMessage::WriteResponse, HAPFlags::None,
                                  0x0020,  // Echoes the request: the response IS
                                           // the acknowledgement.
-                                 HAPPath(), src, payload, writer.size(), buffer,
-                                 sizeof(buffer));
+                                 HAPNodeId::zero(), kLamp, payload, writer.size(),
+                                 buffer, sizeof(buffer));
 
   CHECK_BYTES(buffer, size,
-              "4841 01 16 02 2000 02 0000000000 0104000000"
+              "4841 02 16 00 2000"
+              "0000000000000000"     // dst at 7: the master
+              "246F28FFFE000004"     // src at 15: the lamp
               "00 11 00 00 01 01");
 }
 
@@ -445,20 +456,18 @@ void testRenameAndItsRevision() noexcept {
 // -------------------------------------------------------------------------
 
 void testSetLink() noexcept {
-  const uint8_t sourceHop[] = {1};
-
   HAPLinkSpec link;
   link.linkId = 0;
 
-  // Source: the controller's own child 1. A downward path, like every path in a
-  // link, because both endpoints are at or below the node that holds it.
-  link.source.path = HAPPath::fromBytes(sourceHop, 1);
+  // Source: the thermometer, by id.
+  link.source.node = kThermometer;
   link.source.classId = static_cast<uint8_t>(HAPClassId::Thermometer);
   link.source.instanceId = 0;
   link.source.portId = 0;
 
-  // Destination: itself - in port 0 of its Regulator, which is Measured.
-  link.destination.path = HAPPath();
+  // Destination: the node holding the link, which a zero id says - in port 0
+  // of its Regulator, which is Measured.
+  link.destination.node = HAPNodeId::zero();
   link.destination.classId = static_cast<uint8_t>(HAPClassId::Regulator);
   link.destination.instanceId = 0;
   link.destination.portId = 0;
@@ -469,29 +478,28 @@ void testSetLink() noexcept {
 
   CHECK(writer.ok());
   CHECK(writer.size() == HAPLinkSpec::kEncodedSize);
-  CHECK(writer.size() == 19);
+  CHECK(writer.size() == 23);
 
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size =
       buildFrame(HAPMessage::SetLinkRequest, HAPFlags::AckRequested, 0x0031,
-                 HAPPath(), HAPPath(), payload, writer.size(), buffer,
+                 kController, kGateway, payload, writer.size(), buffer,
                  sizeof(buffer));
 
-  CHECK(size == 37);
+  CHECK(size == 46);
   CHECK_BYTES(buffer, size,
-              "4841 01 50 01 3100 00 0000000000 0000000000"
-              "00"
-              "01 0100000000"
-              "01 00 00"
-              "00 0000000000"
-              "30 00 00");
+              "4841 02 50 01 3100"
+              "246F28FFFE000002"     // dst at 7: the controller, who holds the link
+              "246F28FFFE000001"     // src at 15: the gateway
+              "00"                   // link id, payload at 23
+              "246F28FFFEAABBCC 01 00 00"   // source: thermometer, class, instance, port
+              "0000000000000000 30 00 00"); // destination: this node, Regulator in 0
 
   HAPReader reader(payload, writer.size());
   HAPLinkSpec parsed;
   CHECK(parsed.decode(reader));
-  CHECK(parsed.source.path.length() == 1);
-  CHECK(parsed.source.path.hop(0) == 1);
-  CHECK(parsed.destination.path.isEmpty());
+  CHECK(parsed.source.node == kThermometer);
+  CHECK(parsed.destination.node.isZero());
   CHECK(parsed.destination.classId == static_cast<uint8_t>(HAPClassId::Regulator));
 }
 
@@ -517,18 +525,17 @@ void testOtaRequest() noexcept {
 
   CHECK(writer.size() == request.encodedSize());
 
-  HAPPath toThermometer;
-  toThermometer.append(kThermometerIsChildOfController);
-
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size =
       buildFrame(HAPMessage::OtaRequest, HAPFlags::AckRequested, 0x0030,
-                 toThermometer, HAPPath(), payload, writer.size(), buffer,
+                 kThermometer, kGateway, payload, writer.size(), buffer,
                  sizeof(buffer));
 
-  CHECK(size == 72);
+  CHECK(size == 77);
   CHECK_BYTES(buffer, size,
-              "4841 01 60 01 3000 10 0200000000 0000000000"
+              "4841 02 60 01 3000"
+              "246F28FFFEAABBCC"    // dst at 7: the thermometer
+              "246F28FFFE000001"    // src at 15: the gateway
               "00 01"
               "07 48617479 6E6B61"
               "06 733363 726574"
@@ -556,18 +563,17 @@ void testOtaResponse() noexcept {
   HAPWriter writer(payload, sizeof(payload));
   response.encode(writer);
 
-  HAPPath fromThermometer;
-  fromThermometer.append(kControllerIsChildOfGateway);
-  fromThermometer.append(kThermometerIsChildOfController);
-
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size =
-      buildFrame(HAPMessage::OtaResponse, HAPFlags::Upstream, 0x0030, HAPPath(),
-                 fromThermometer, payload, writer.size(), buffer, sizeof(buffer));
+      buildFrame(HAPMessage::OtaResponse, HAPFlags::None, 0x0030,
+                 HAPNodeId::zero(), kThermometer, payload, writer.size(), buffer,
+                 sizeof(buffer));
 
-  CHECK(size == 25);
+  CHECK(size == 30);
   CHECK_BYTES(buffer, size,
-              "4841 01 61 02 3000 02 0000000000 0102000000"
+              "4841 02 61 00 3000"
+              "0000000000000000"    // dst at 7: the master
+              "246F28FFFEAABBCC"    // src at 15: the thermometer
               "00 05 312E312E30");
 
   HAPReader reader(payload, writer.size());
@@ -614,7 +620,7 @@ void runSpecTests() noexcept {
   testChildAttached();
   testReportLeavesTheSensor();
   testReportClimbsTwoHops();
-  testCommandDescends();
+  testCommandGoesStraightToTheLamp();
   testWriteResponseClimbsBack();
   testRenameAndItsRevision();
   testSetLink();

@@ -212,6 +212,7 @@ void testTheMasterCanReachTheSlaveAfterwards() noexcept {
 
   HAPFrame ping;
   ping.type = static_cast<uint8_t>(HAPMessage::Ping);
+  ping.src.bytes[HAP_NODE_ID_LEN - 1] = 1;  // A frame needs an originator.
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size = ping.encode(buffer, sizeof(buffer));
 

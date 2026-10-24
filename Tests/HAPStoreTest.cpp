@@ -281,6 +281,40 @@ void testEverythingTogether() noexcept {
   reset();
 }
 
+void testOnlyAnnouncedNodesAreStoredInTheModel() noexcept {
+  HAPStore::clearAll();
+
+  HAPModel model;
+
+  // Told about: ChildAttached named it.
+  HAPChildAttached attached;
+  attached.reportIntervalSec = 60;
+  attached.capabilities = HAPCaps::BatteryPowered;
+  idFor(0x33).toMac(attached.mac);
+  model.noteChildAttached(attached);
+
+  // Only heard: a report built the entry, so nothing said what it is.
+  HAPReport report;
+  report.descriptorRev = 0x9C4A;
+  model.noteReport(idFor(0x44), report);
+  CHECK(model.size() == 2);
+
+  CHECK(HAPStore::saveModel(model));
+
+  HAPModel restored;
+  CHECK(HAPStore::loadModel(restored) == 1);
+  CHECK(restored.size() == 1);
+
+  const HAPRemoteNode* node = restored.find(idFor(0x33));
+  REQUIRE(node != nullptr);
+  CHECK(node->announced);
+  CHECK(node->reportIntervalSec == 60);
+  CHECK(node->isBatteryPowered());
+  CHECK(restored.find(idFor(0x44)) == nullptr);
+
+  HAPStore::clearAll();
+}
+
 }  // namespace
 
 void runStoreTests() noexcept {
@@ -301,4 +335,5 @@ void runStoreTests() noexcept {
   testAnUnnamedInstanceKeepsItsFirmwareName();
   testCorruptStorageIsRefusedRatherThanBelieved();
   testEverythingTogether();
+  testOnlyAnnouncedNodesAreStoredInTheModel();
 }

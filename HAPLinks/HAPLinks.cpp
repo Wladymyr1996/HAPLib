@@ -9,7 +9,7 @@ HAPLinks::HAPLinks(const HAPNode& node) noexcept : node_(node) {}
 
 HAPResult HAPLinks::validateLocal(const HAPPortRef& reference,
                                   HAPPortDirection direction) const noexcept {
-  if (!reference.path.isEmpty()) {
+  if (!reference.node.isZero()) {
     // Somewhere below. This node knows the CLASS rules for it - checked by the
     // caller through the class table - but not whether that node actually has
     // the instance, so it takes the configuring node's word for that.
@@ -90,9 +90,9 @@ HAPResult HAPLinks::set(const HAPLinkSpec& spec) noexcept {
   links_.push_back(spec);
 
   HInfo("link %u: %s/%u.%u.%u -> %s/%u.%u.%u", spec.linkId,
-        spec.source.path.toString().c_str(), spec.source.classId,
+        spec.source.node.toString().c_str(), spec.source.classId,
         spec.source.instanceId, spec.source.portId,
-        spec.destination.path.toString().c_str(), spec.destination.classId,
+        spec.destination.node.toString().c_str(), spec.destination.classId,
         spec.destination.instanceId, spec.destination.portId);
 
   return HAPResult::Ok;
@@ -177,9 +177,9 @@ void HAPLinks::onDeliver(DeliveryHook hook) noexcept {
   onDeliver_ = hook;
 }
 
-bool HAPLinks::watches(const HAPPath& sourcePath) const noexcept {
+bool HAPLinks::watches(const HAPNodeId& source) const noexcept {
   for (const HAPLinkSpec& link : links_) {
-    if (link.source.path == sourcePath) {
+    if (link.source.node == source) {
       return true;
     }
   }
@@ -187,14 +187,13 @@ bool HAPLinks::watches(const HAPPath& sourcePath) const noexcept {
   return false;
 }
 
-size_t HAPLinks::deliver(const HAPPath& sourcePath,
+size_t HAPLinks::deliver(const HAPNodeId& source,
                          const HAPValueEntry& entry) noexcept {
   size_t fired = 0;
 
   for (const HAPLinkSpec& link : links_) {
-    // The comparison the whole addressing design was built to make possible:
-    // what a climbing frame carries is already the downward path from here.
-    if (link.source.path != sourcePath || link.source.classId != entry.classId ||
+    // A report names the node that produced it, which is what a link stores.
+    if (link.source.node != source || link.source.classId != entry.classId ||
         link.source.instanceId != entry.instanceId ||
         link.source.portId != entry.portId) {
       continue;
@@ -210,12 +209,12 @@ size_t HAPLinks::deliver(const HAPPath& sourcePath,
   return fired;
 }
 
-size_t HAPLinks::deliver(const HAPPath& sourcePath,
+size_t HAPLinks::deliver(const HAPNodeId& source,
                          const HAPReport& report) noexcept {
   size_t fired = 0;
 
   for (const HAPValueEntry& entry : report.entries) {
-    fired += deliver(sourcePath, entry);
+    fired += deliver(source, entry);
   }
 
   return fired;

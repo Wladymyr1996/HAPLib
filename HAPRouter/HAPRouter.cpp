@@ -14,6 +14,12 @@ HAPRoute toParent() noexcept {
   return route;
 }
 
+HAPRoute toNode() noexcept {
+  HAPRoute route;
+  route.action = HAPRouteAction::ToNode;
+  return route;
+}
+
 HAPRoute toChild(uint8_t index) noexcept {
   HAPRoute route;
   route.action = HAPRouteAction::ToChild;
@@ -109,7 +115,7 @@ bool HAPRouter::addChild(const HAPChild& newChild) noexcept {
     return false;
   }
 
-  if (newChild.index < HAPPath::kMinHop || newChild.index > HAP_MAX_CHILDREN) {
+  if (newChild.index < kMinChildIndex || newChild.index > HAP_MAX_CHILDREN) {
     return false;
   }
 
@@ -203,53 +209,57 @@ bool HAPRouter::isKnown(const HAPNodeId& id) const noexcept {
 // Routing
 // ---------------------------------------------------------------------------
 
-HAPRoute HAPRouter::resolveDownstream(HAPFrame& frame) const noexcept {
-  if (frame.dest.isEmpty()) {
+HAPRoute HAPRouter::resolveDownstream(const HAPNodeId& dst,
+                                      const HAPNodeId& self) const noexcept {
+  if (dst == self) {
     return deliver();
   }
 
-  const uint8_t index = frame.dest.first();
-  if (child(index) == nullptr) {
-    // The frame is not dropped silently: the caller owes the originator a
-    // RouteError naming this hop, which is the difference between a diagnosis
-    // and a timeout.
-    return drop(HAPResult::NoSuchChild, index);
+  if (dst.isZero()) {
+    // "The master" is upstream by definition; there is no way down to it.
+    return drop(HAPResult::BadRequest);
   }
 
-  frame.dest.shift();
-  return toChild(index);
+  const HAPChild* direct = childById(dst);
+  if (direct != nullptr) {
+    return toChild(direct->index);
+  }
+
+  return toNode();
 }
 
-HAPRoute HAPRouter::route(HAPFrame& frame, const HAPNodeId& from) const noexcept {
+HAPRoute HAPRouter::route(const HAPFrame& frame, const HAPNodeId& from,
+                          const HAPNodeId& self) const noexcept {
   const bool fromParent = hasParent_ && from == parentId_;
   const HAPChild* sender = childById(from);
 
-  // Nothing inside a frame says where it came from, so the sender's address is
-  // the only trustworthy statement about it - and a stranger's frame is the
-  // binder's business, not the router's.
+  if (frame.dst == self) {
+    // Trust is the network's key, not the sender's address - but a node that is
+    // in no tree still answers only the binder.
+    if (!hasParent_ && children_.empty()) {
+      return drop(HAPResult::NotBound);
+    }
+
+    return deliver();
+  }
+
+  // Nothing inside a frame says where it was LAST sent from, so the sender's
+  // address is the only trustworthy statement about it - and a stranger's frame
+  // is the binder's business, not the router's.
   if (!fromParent && sender == nullptr) {
     return drop(HAPResult::NotBound);
   }
 
-  if (frame.isUpstream()) {
+  if (frame.dst.isZero()) {
     if (sender == nullptr) {
-      // The parent does not send upstream frames to its own child. Something is
-      // forwarding the wrong way.
+      // The parent does not send frames for the master to its own child.
+      // Something is forwarding the wrong way.
       return drop(HAPResult::BadRequest);
-    }
-
-    if (!frame.src.prepend(sender->index)) {
-      // Five hops already: this has travelled further than the tree may be
-      // deep, so it is circulating rather than climbing.
-      return drop(HAPResult::BadRequest, sender->index);
     }
 
     return hasParent_ ? toParent() : deliver();
   }
 
-  if (!fromParent) {
-    return drop(HAPResult::BadRequest);
-  }
-
-  return resolveDownstream(frame);
+  // For some other node: nothing forwards downward any more.
+  return drop(HAPResult::BadRequest);
 }

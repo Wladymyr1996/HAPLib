@@ -10,15 +10,13 @@
  * @brief The wires this node holds: one port's output feeding another's input.
  *
  * A link lives at the **lowest common ancestor** of its two endpoints - the only
- * node that both sees the source value and has a route to the destination. Which
- * is why every path in one is downward: from here, everything a link touches is
- * at or below this node.
+ * node that both sees the source value and has a route to the destination.
  *
- * ## Matching is a byte comparison
- * Because each node prepends the hop a frame arrived from, a climbing report's
- * source path is - at this node - exactly the downward path from here to
- * whatever produced it. That is the same thing a link stores, so deciding
- * whether a report feeds a link is a comparison rather than a calculation.
+ * ## Matching is an id comparison
+ * A report carries the id of the node that produced it, and a link stores the
+ * id of the node it takes its source from, so deciding whether a report feeds a
+ * link is a comparison rather than a calculation. A zero id means this node
+ * itself.
  *
  * ## A wire is a wire
  * Nothing here scales, thresholds or transforms. "Temperature above 22 turns the
@@ -73,7 +71,7 @@ class HAPLinks {
   /**
    * @brief Where a value is to be delivered.
    *
-   * An empty destination path means this node itself - the case that never
+   * A zero destination node means this node itself - the case that never
    * touches the radio, and the reason a control loop belongs as low in the tree
    * as it will go.
    */
@@ -83,16 +81,16 @@ class HAPLinks {
 
   /**
    * @brief Feeds one value to whatever is wired to it.
-   * @param sourcePath Downward from this node; empty for its own instances.
+   * @param source The node that produced it; zero for this node's own instances.
    * @return How many links fired.
    */
-  size_t deliver(const HAPPath& sourcePath, const HAPValueEntry& entry) noexcept;
+  size_t deliver(const HAPNodeId& source, const HAPValueEntry& entry) noexcept;
 
   /** @brief The same, for every entry of a report. */
-  size_t deliver(const HAPPath& sourcePath, const HAPReport& report) noexcept;
+  size_t deliver(const HAPNodeId& source, const HAPReport& report) noexcept;
 
-  /** @brief True when any link takes its source from that path. */
-  bool watches(const HAPPath& sourcePath) const noexcept;
+  /** @brief True when any link takes its source from that node. */
+  bool watches(const HAPNodeId& source) const noexcept;
 
  private:
   /** True when something else already drives that input. */

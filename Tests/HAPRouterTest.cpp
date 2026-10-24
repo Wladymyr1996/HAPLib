@@ -2,6 +2,8 @@
 
 #include <HAPRouter/HAPRouter.hpp>
 
+#include <cstring>
+
 namespace {
 
 const HAPNodeId kGateway = HAPNodeId::fromMac(
@@ -10,6 +12,8 @@ const HAPNodeId kController = HAPNodeId::fromMac(
     reinterpret_cast<const uint8_t*>("\x24\x6F\x28\x00\x00\x02"));
 const HAPNodeId kThermometer = HAPNodeId::fromMac(
     reinterpret_cast<const uint8_t*>("\x24\x6F\x28\x00\x00\x03"));
+const HAPNodeId kOther = HAPNodeId::fromMac(
+    reinterpret_cast<const uint8_t*>("\x24\x6F\x28\x00\x00\x04"));
 const HAPNodeId kStranger = HAPNodeId::fromMac(
     reinterpret_cast<const uint8_t*>("\xAA\xBB\xCC\xDD\xEE\xFF"));
 
@@ -22,17 +26,20 @@ HAPChild makeChild(uint8_t index, const HAPNodeId& mac,
   return child;
 }
 
-HAPFrame upstreamFrame() noexcept {
+/** A frame for the master, from `src`. */
+HAPFrame frameForMaster(const HAPNodeId& src) noexcept {
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(HAPMessage::Report);
-  frame.set(HAPFlags::Upstream);
+  frame.src = src;
   return frame;
 }
 
-HAPFrame downstreamFrame(const HAPPath& dest) noexcept {
+/** A frame addressed to `dst`, from `src`. */
+HAPFrame frameTo(const HAPNodeId& dst, const HAPNodeId& src) noexcept {
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(HAPMessage::WriteRequest);
-  frame.dest = dest;
+  frame.dst = dst;
+  frame.src = src;
   return frame;
 }
 
@@ -127,70 +134,83 @@ void testUpstreamFromChild() noexcept {
   CHECK(!controller.isRoot());
   CHECK(controller.indexAtParent() == 1);
 
-  HAPFrame frame = upstreamFrame();
-  const HAPRoute route = controller.route(frame, kThermometer);
+  // The originator may be the child or something far below it: the frame is the
+  // same either way, and the router never touches it.
+  const HAPFrame frame = frameForMaster(kOther);
+  const HAPRoute route = controller.route(frame, kThermometer, kController);
 
   CHECK(route.action == HAPRouteAction::ToParent);
-  CHECK(frame.src.length() == 1);
-  CHECK(frame.src.hop(0) == 2);
+  CHECK(frame.src == kOther);
+  CHECK(frame.dst.isZero());
 }
 
 void testUpstreamArrivingAtTheRoot() noexcept {
   HAPRouter gateway;  // No parent: this is the root.
   CHECK(gateway.addChild(makeChild(1, kController)));
 
-  HAPFrame frame = upstreamFrame();
-  const HAPRoute route = gateway.route(frame, kController);
+  const HAPFrame frame = frameForMaster(kOther);
+  const HAPRoute route = gateway.route(frame, kController, kGateway);
 
-  // The root does not forward - the frame has arrived, and its source path is
-  // now the address to answer.
+  // The root does not forward - the frame has arrived, and its source is the
+  // id to answer.
   CHECK(route.action == HAPRouteAction::Deliver);
-  CHECK(frame.src.length() == 1);
-  CHECK(frame.src.hop(0) == 1);
+  CHECK(frame.src == kOther);
 }
 
-void testDownstreamForwarding() noexcept {
-  HAPRouter controller;
-  controller.setParent(kGateway, 1);
-  CHECK(controller.addChild(makeChild(4, kThermometer)));
-
-  const uint8_t hops[] = {4};
-  HAPFrame frame = downstreamFrame(HAPPath::fromBytes(hops, 1));
-
-  const HAPRoute route = controller.route(frame, kGateway);
-  CHECK(route.action == HAPRouteAction::ToChild);
-  CHECK(route.childIndex == 4);
-
-  // The hop that named the child is eaten, so what the child receives is
-  // addressed relative to itself.
-  CHECK(frame.dest.isEmpty());
-}
-
-void testDownstreamArriving() noexcept {
-  HAPRouter thermometer;
-  thermometer.setParent(kController, 2);
-
-  HAPFrame frame = downstreamFrame(HAPPath());
-  const HAPRoute route = thermometer.route(frame, kController);
-
-  CHECK(route.action == HAPRouteAction::Deliver);
-}
-
-void testNoSuchChild() noexcept {
+void testFrameForThisNode() noexcept {
   HAPRouter controller;
   controller.setParent(kGateway, 1);
   CHECK(controller.addChild(makeChild(2, kThermometer)));
 
-  const uint8_t hops[] = {5};  // Nothing is child 5.
-  HAPFrame frame = downstreamFrame(HAPPath::fromBytes(hops, 1));
+  // From the parent, from a child and from a node it has never met: addressed to
+  // it, so delivered - the network key is the boundary, not the sender.
+  const HAPFrame frame = frameTo(kController, kGateway);
+  CHECK(controller.route(frame, kGateway, kController).action ==
+        HAPRouteAction::Deliver);
+  CHECK(controller.route(frame, kThermometer, kController).action ==
+        HAPRouteAction::Deliver);
+  CHECK(controller.route(frame, kStranger, kController).action ==
+        HAPRouteAction::Deliver);
 
-  const HAPRoute route = controller.route(frame, kGateway);
+  // A leaf with only a parent counts as being in a tree too.
+  HAPRouter thermometer;
+  thermometer.setParent(kController, 2);
+  CHECK(thermometer.route(frameTo(kThermometer, kGateway), kStranger,
+                          kThermometer).action == HAPRouteAction::Deliver);
+
+  // A root with children likewise.
+  HAPRouter gateway;
+  CHECK(gateway.addChild(makeChild(1, kController)));
+  CHECK(gateway.route(frameTo(kGateway, kOther), kStranger, kGateway).action ==
+        HAPRouteAction::Deliver);
+}
+
+void testFrameForAnUnboundNode() noexcept {
+  // In no tree at all: everything not for the binder is dropped, as before.
+  HAPRouter loner;
+  const HAPRoute route = loner.route(frameTo(kThermometer, kGateway), kGateway,
+                                     kThermometer);
   CHECK(route.isDrop());
-  CHECK(route.reason == HAPResult::NoSuchChild);
+  CHECK(route.reason == HAPResult::NotBound);
+}
 
-  // Which hop failed, so the caller can name it in a RouteError rather than
-  // leaving the originator with a timeout.
-  CHECK(route.childIndex == 5);
+void testNothingForwardsDownward() noexcept {
+  HAPRouter controller;
+  controller.setParent(kGateway, 1);
+  CHECK(controller.addChild(makeChild(4, kThermometer)));
+
+  // For some other node, even one of its own children: the originator sends it
+  // there directly, so a relay has nothing to do.
+  const HAPFrame forChild = frameTo(kThermometer, kGateway);
+  const HAPRoute route = controller.route(forChild, kGateway, kController);
+  CHECK(route.isDrop());
+  CHECK(route.reason == HAPResult::BadRequest);
+
+  const HAPFrame forOther = frameTo(kOther, kGateway);
+  CHECK(controller.route(forOther, kGateway, kController).reason ==
+        HAPResult::BadRequest);
+  CHECK(controller.route(forOther, kThermometer, kController).reason ==
+        HAPResult::BadRequest);
 }
 
 void testFramesFromStrangers() noexcept {
@@ -198,51 +218,59 @@ void testFramesFromStrangers() noexcept {
   controller.setParent(kGateway, 1);
   CHECK(controller.addChild(makeChild(2, kThermometer)));
 
-  HAPFrame upstream = upstreamFrame();
-  CHECK(controller.route(upstream, kStranger).reason == HAPResult::NotBound);
+  // Not for this node, and from nobody it knows: the binder's business.
+  const HAPFrame forMaster = frameForMaster(kOther);
+  CHECK(controller.route(forMaster, kStranger, kController).reason ==
+        HAPResult::NotBound);
 
-  HAPFrame downstream = downstreamFrame(HAPPath());
-  CHECK(controller.route(downstream, kStranger).reason == HAPResult::NotBound);
+  const HAPFrame forOther = frameTo(kOther, kGateway);
+  CHECK(controller.route(forOther, kStranger, kController).reason ==
+        HAPResult::NotBound);
 
-  // A downstream frame from a child is a node forwarding the wrong way.
-  HAPFrame wrongWay = downstreamFrame(HAPPath());
-  CHECK(controller.route(wrongWay, kThermometer).reason == HAPResult::BadRequest);
-
-  // And an upstream frame from the parent is the same mistake mirrored.
-  HAPFrame fromAbove = upstreamFrame();
-  CHECK(controller.route(fromAbove, kGateway).reason == HAPResult::BadRequest);
+  // A frame for the master arriving from the parent is a node forwarding the
+  // wrong way.
+  const HAPFrame fromAbove = frameForMaster(kGateway);
+  CHECK(controller.route(fromAbove, kGateway, kController).reason ==
+        HAPResult::BadRequest);
 }
 
-void testLoopGuard() noexcept {
+void testRouteLeavesTheFrameAlone() noexcept {
   HAPRouter controller;
   controller.setParent(kGateway, 1);
   CHECK(controller.addChild(makeChild(2, kThermometer)));
 
-  HAPFrame frame = upstreamFrame();
-  const uint8_t full[] = {1, 1, 1, 1, 1};
-  frame.src = HAPPath::fromBytes(full, HAP_MAX_DEPTH);
+  const HAPFrame frame = frameForMaster(kOther);
+  uint8_t before[HAP_MAX_FRAME_SIZE];
+  uint8_t after[HAP_MAX_FRAME_SIZE];
+  const size_t size = frame.encode(before, sizeof(before));
 
-  // Five hops already: this has climbed further than the tree may be deep, so
-  // it is circulating rather than travelling.
-  const HAPRoute route = controller.route(frame, kThermometer);
-  CHECK(route.isDrop());
-  CHECK(frame.src.length() == HAP_MAX_DEPTH);
+  controller.route(frame, kThermometer, kController);
+
+  CHECK(frame.encode(after, sizeof(after)) == size);
+  CHECK(std::memcmp(before, after, size) == 0);
 }
 
 void testOriginatingLocally() noexcept {
   HAPRouter gateway;
   CHECK(gateway.addChild(makeChild(1, kController)));
 
-  // A root addressing 1.4 resolves the first hop itself; what it emits carries
-  // only the remainder, exactly as Docs/Protocol.md section 8.3 shows.
-  const uint8_t hops[] = {1, 4};
-  HAPFrame frame = downstreamFrame(HAPPath::fromBytes(hops, 2));
+  // A direct child goes through the child table - that is where a sleeping one
+  // is queued for.
+  const HAPRoute direct = gateway.resolveDownstream(kController, kGateway);
+  CHECK(direct.action == HAPRouteAction::ToChild);
+  CHECK(direct.childIndex == 1);
 
-  const HAPRoute route = gateway.resolveDownstream(frame);
-  CHECK(route.action == HAPRouteAction::ToChild);
-  CHECK(route.childIndex == 1);
-  CHECK(frame.dest.length() == 1);
-  CHECK(frame.dest.hop(0) == 4);
+  // Anything else is sent straight to it.
+  CHECK(gateway.resolveDownstream(kOther, kGateway).action ==
+        HAPRouteAction::ToNode);
+
+  // Itself is delivered; "the master" has no way down.
+  CHECK(gateway.resolveDownstream(kGateway, kGateway).action ==
+        HAPRouteAction::Deliver);
+
+  const HAPRoute up = gateway.resolveDownstream(HAPNodeId::zero(), kGateway);
+  CHECK(up.isDrop());
+  CHECK(up.reason == HAPResult::BadRequest);
 }
 
 void testBatteryCapability() noexcept {
@@ -280,11 +308,11 @@ void runRouterTests() noexcept {
   testIndexReuse();
   testUpstreamFromChild();
   testUpstreamArrivingAtTheRoot();
-  testDownstreamForwarding();
-  testDownstreamArriving();
-  testNoSuchChild();
+  testFrameForThisNode();
+  testFrameForAnUnboundNode();
+  testNothingForwardsDownward();
   testFramesFromStrangers();
-  testLoopGuard();
+  testRouteLeavesTheFrameAlone();
   testOriginatingLocally();
   testBatteryCapability();
   testParentIsKnown();

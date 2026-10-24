@@ -298,6 +298,7 @@ size_t buildFrame(uint8_t* out, size_t capacity, uint16_t seq) noexcept {
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(HAPMessage::SetNameRequest);
   frame.seq = seq;
+  frame.src.bytes[HAP_NODE_ID_LEN - 1] = 1;  // A frame needs an originator.
   return frame.encode(out, capacity);
 }
 

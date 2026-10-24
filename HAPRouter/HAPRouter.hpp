@@ -43,8 +43,9 @@ struct HAPChild {
 /** @brief What to do with a frame. */
 enum class HAPRouteAction : uint8_t {
   Deliver,  ///< For this node: hand it up to the stack.
-  ToChild,  ///< Forward down; see HAPRoute::childIndex.
+  ToChild,  ///< Send to a direct child; see HAPRoute::childIndex.
   ToParent, ///< Forward up.
+  ToNode,   ///< Send straight to the destination id; it is not a direct child.
   Drop      ///< Went nowhere; see HAPRoute::reason.
 };
 
@@ -67,32 +68,34 @@ struct HAPRoute {
  * The whole of HAP's addressing, and nothing else: no radio, no timers, no
  * state machine. Given a frame and the address it arrived from, it says
  * `deliver`, `forward there`, or `drop, because`. What to DO about that - send
- * it, queue it for a sleeping child, answer with a RouteError - belongs to the
- * layer above, which is what keeps this one exhaustively testable.
+ * it, queue it for a sleeping child - belongs to the layer above, which is what
+ * keeps this one exhaustively testable.
  *
- * ## The two rules
- * Downstream, eat the first hop and forward to that child; an empty destination
- * means the frame has arrived. Upstream, prepend the index of the child it came
- * from and pass it to the parent; no parent means this node is the root and the
- * frame has arrived.
+ * ## The rules
+ * A frame addressed to this node is delivered, whoever sent it. A frame for the
+ * master (destination zero) climbs: from a child it goes to the parent, and a
+ * node with no parent is the root, where it has arrived. The source id is the
+ * originator's and is never touched on the way, so a reply needs no return path
+ * - it is addressed to that id.
  *
- * The prepend is the interesting half. Because every node does it, a climbing
- * frame's source path is, at each node it passes, exactly the downward path from
- * THAT node back to the origin - so a reply routes straight back down and
- * matching a report against a link is a byte comparison.
+ * Nothing forwards DOWN the tree any more: a frame for another node is sent
+ * straight to it (see resolveDownstream()). Only upstream traffic is relayed,
+ * and it climbs a tree built by binding, which cannot loop.
  *
  * ## What it refuses
- * - a frame from an address that is neither the parent nor a child, because
- *   nothing inside a frame says where it came from and only the sender's
- *   address does. Bind traffic never reaches here: an unbound stranger is the
+ * - a frame from an address that is neither the parent nor a child, unless it
+ *   is addressed to this node, because only the sender's address says where it
+ *   came from. Bind traffic never reaches here: an unbound stranger is the
  *   binder's business;
- * - a downstream frame arriving from a child, which is a node forwarding the
- *   wrong way;
- * - an upstream frame whose source path is already five hops long, which has
- *   travelled further than the tree may be deep. That is the loop guard.
+ * - a frame for the master arriving from the parent, which is a node forwarding
+ *   the wrong way;
+ * - a frame for some other node, which this node has no business relaying.
  */
 class HAPRouter {
  public:
+  /** The lowest child index; 0 means "none". */
+  static constexpr uint8_t kMinChildIndex = 1;
+
   /** @brief Records the parent, and the index this node was given there. */
   void setParent(const HAPNodeId& id, uint8_t indexAtParent) noexcept;
 
@@ -161,23 +164,23 @@ class HAPRouter {
   bool isKnown(const HAPNodeId& id) const noexcept;
 
   /**
-   * @brief Decides what happens to a received frame, and rewrites its paths.
+   * @brief Decides what happens to a received frame. The frame is not changed:
+   *        what is forwarded is what arrived.
    *
-   * @param frame Mutated in place: the destination is shifted for a forward
-   *        downstream, the source is prepended for a forward upstream. What
-   *        comes back is ready to encode and send as it stands.
    * @param from The sender's address.
+   * @param self This node's own id.
    */
-  HAPRoute route(HAPFrame& frame, const HAPNodeId& from) const noexcept;
+  HAPRoute route(const HAPFrame& frame, const HAPNodeId& from,
+                 const HAPNodeId& self) const noexcept;
 
   /**
-   * @brief The downstream step alone, for a frame this node is ORIGINATING.
+   * @brief Where a frame this node is ORIGINATING goes.
    *
-   * A root addressing 1.4 resolves hop 1 itself, and what it emits carries only
-   * the remainder - so its own frames take the same path through the same code
-   * as anything it forwards.
+   * A direct child is reached through the child table, which is what lets a
+   * sleeping one be queued for; any other node is sent to directly.
    */
-  HAPRoute resolveDownstream(HAPFrame& frame) const noexcept;
+  HAPRoute resolveDownstream(const HAPNodeId& dst,
+                             const HAPNodeId& self) const noexcept;
 
  private:
   etl::vector<HAPChild, HAP_MAX_CHILDREN> children_;

@@ -64,29 +64,14 @@ HAPValueEntry HAPValueEntry::decode(HAPReader& reader) noexcept {
 // ---------------------------------------------------------------------------
 
 void HAPPortRef::encode(HAPWriter& writer) const noexcept {
-  writer.u8(path.length());
-  writer.bytes(path.bytes(), HAP_MAX_DEPTH);
+  writer.nodeId(node);
   writer.u8(classId);
   writer.u8(instanceId);
   writer.u8(portId);
 }
 
 bool HAPPortRef::decode(HAPReader& reader) noexcept {
-  const uint8_t length = reader.u8();
-  const uint8_t* hops = reader.bytes(HAP_MAX_DEPTH);
-
-  if (hops == nullptr) {
-    return false;
-  }
-
-  path = HAPPath::fromBytes(hops, length);
-
-  // fromBytes yields an empty path for anything illegal, so a non-zero length
-  // that came back empty means the reference addresses nothing real.
-  if (path.length() != length) {
-    return false;
-  }
-
+  node = reader.nodeId();
   classId = reader.u8();
   instanceId = reader.u8();
   portId = reader.u8();
@@ -95,7 +80,7 @@ bool HAPPortRef::decode(HAPReader& reader) noexcept {
 }
 
 bool HAPPortRef::operator==(const HAPPortRef& other) const noexcept {
-  return path == other.path && classId == other.classId &&
+  return node == other.node && classId == other.classId &&
          instanceId == other.instanceId && portId == other.portId;
 }
 

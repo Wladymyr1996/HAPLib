@@ -1,7 +1,7 @@
 #pragma once
 
 #include <HAP.h>
-#include <HAPPath/HAPPath.hpp>
+#include <HAPNodeId/HAPNodeId.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -12,8 +12,7 @@ enum class HAPFrameError : uint8_t {
   TooShort,      ///< Fewer bytes than a header.
   BadMagic,      ///< Did not begin 'H' 'A' - not ours, and common on a shared channel.
   BadVersion,    ///< A protocol this build does not speak.
-  BadPathLength, ///< A path claiming more hops than the tree may be deep.
-  BadHop,        ///< A zero or reserved hop index inside a path.
+  NoSource,      ///< An all-zero source id: nobody sent it, so nobody can answer.
   TooLong        ///< More payload than a frame may carry.
 };
 
@@ -21,11 +20,11 @@ enum class HAPFrameError : uint8_t {
 const char* HAPFrameErrorToString(HAPFrameError error) noexcept;
 
 /**
- * @brief One HAP frame: an 18-byte header and a view of its payload.
+ * @brief One HAP frame: a 23-byte header and a view of its payload.
  *
  * The header is public data because that is what it is - a wire structure, laid
- * out in Docs/Protocol.md section 2, with no invariant to protect beyond what
- * decode() has already checked.
+ * out in Docs/ThreadDesign.md section 5, with no invariant to protect beyond
+ * what decode() has already checked.
  *
  * ## The payload is a VIEW
  * `payload` points into whatever buffer decode() was given and copies nothing.
@@ -34,16 +33,14 @@ const char* HAPFrameErrorToString(HAPFrameError error) noexcept;
  * while the buffer it came from is. Forwarding therefore reads from the receive
  * buffer and encodes into a separate transmit buffer, never into its own source.
  *
- * ## Forwarding is three lines
- * @code
- *   HAPFrame frame;
- *   HAPFrame::decode(rx, rxSize, frame);
- *   frame.src.prepend(childIndex);          // upstream
- *   frame.encode(tx, sizeof(tx));
- * @endcode
+ * ## Addresses are node ids
+ * `src` is the ORIGINATOR and is never rewritten by forwarding, so a frame
+ * decoded anywhere on its way says who sent it. `dst` is the target, or all
+ * zeroes for "the master, whoever it is". On the wire both are their eight bytes
+ * in stored order (see HAPCodec.hpp), not integers.
  */
 struct HAPFrame {
-  /** @brief An empty Ping with both paths empty - a frame to fill in. */
+  /** @brief An empty Ping with both ids zero - a frame to fill in. */
   HAPFrame() noexcept;
 
   /** Message type; a HAPMessage, kept as a byte because the wire may carry one this build does not know. */
@@ -55,11 +52,11 @@ struct HAPFrame {
   /** Unique per originator for a few seconds; echoed by Ack, Nack and RouteError. */
   uint16_t seq;
 
-  /** Where it is going, relative to whoever holds it. Unused when Upstream is set. */
-  HAPPath dest;
+  /** Where it is going. All zeroes means the master, whoever it is. */
+  HAPNodeId dst;
 
-  /** Where it came from - written by each node it passes, on the way up. */
-  HAPPath src;
+  /** Who sent it. Never zero, and not rewritten by a node that forwards it. */
+  HAPNodeId src;
 
   /** Not owned. See the note above about lifetime. */
   const uint8_t* payload;
@@ -70,11 +67,8 @@ struct HAPFrame {
   /**
    * @brief Parses a received buffer.
    *
-   * Rejects anything it cannot route: a foreign magic, a version it does not
-   * speak, an impossible path length, an illegal hop. It is deliberately LENIENT
-   * about one thing - bytes past a path's length are ignored rather than
-   * required to be zero - because a sloppy sender is not a threat, while
-   * re-encoding always zeroes them so that this node's own frames compare equal.
+   * Rejects anything it cannot answer: a foreign magic, a version it does not
+   * speak (a version 1 frame is one), a zero source.
    *
    * @param out Untouched unless the return value is None.
    */
@@ -83,8 +77,8 @@ struct HAPFrame {
 
   /**
    * @brief Writes the header and payload into `out`.
-   * @return Bytes written, or 0 if they would not fit or the payload is
-   *         oversized.
+   * @return Bytes written, or 0 if they would not fit, the payload is oversized
+   *         or the source is zero. A zero `dst` is fine: it is the master.
    */
   size_t encode(uint8_t* out, size_t capacity) const noexcept;
 
@@ -97,8 +91,8 @@ struct HAPFrame {
   void set(uint8_t mask) noexcept;
   void unset(uint8_t mask) noexcept;
 
-  /** @brief True when this frame routes toward the root rather than by dest. */
-  bool isUpstream() const noexcept;
+  /** @brief True when `dst` is zero: the frame is for the master, whoever it is. */
+  bool isForMaster() const noexcept;
 
   /** @brief The message type as an enum; meaningless if this build does not know it. */
   HAPMessage message() const noexcept;

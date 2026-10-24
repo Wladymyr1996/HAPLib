@@ -2,7 +2,6 @@
 
 #include <HAPNodeId/HAPNodeId.hpp>
 #include <HAPMessages/HAPMessages.hpp>
-#include <HAPPath/HAPPath.hpp>
 
 #include <etl/delegate.h>
 #include <etl/vector.h>
@@ -22,11 +21,11 @@
 
 /** @brief One node somewhere below this one, as far as this one knows. */
 struct HAPRemoteNode {
-  /** Downward from the node holding the model. Its identity here. */
-  HAPPath path;
-
-  /** Its permanent identity, once ChildAttached has said so. Zero until then. */
+  /** Its permanent identity, and its key in the model. Never zero. */
   HAPNodeId id;
+
+  /** True once somebody SAID this node exists (ChildAttached, or a restore). */
+  bool announced = false;
 
   HAPDeviceType deviceType = HAPDeviceType::Sensor;
   uint8_t capabilities = HAPCaps::None;
@@ -72,9 +71,9 @@ struct HAPRemoteNode {
  * for a user interface to show.
  *
  * ## Discovery is a side effect of reporting
- * Nothing announces the shape of the network. A report arriving with
- * `src = 1.2` says there is a node at 1.2, and the revision it carries says
- * whether what is cached about it is still true. So the model is built by
+ * Nothing announces the shape of the network. A report arriving with a `src`
+ * the model has not met says there is such a node, and the revision it carries
+ * says whether what is cached about it is still true. So the model is built by
  * listening, and `Describe` is pulled only for what it turns out not to know.
  *
  * That single mechanism covers a renamed instance, a firmware update that added
@@ -94,10 +93,10 @@ class HAPModel {
    * @brief Records that a node exists and was heard from just now.
    * @return The entry, or nullptr when the model is full.
    */
-  HAPRemoteNode* observe(const HAPPath& path) noexcept;
+  HAPRemoteNode* observe(const HAPNodeId& id) noexcept;
 
   /** @brief Applies a report: values, revision, and proof of life. */
-  HAPRemoteNode* noteReport(const HAPPath& path, const HAPReport& report) noexcept;
+  HAPRemoteNode* noteReport(const HAPNodeId& id, const HAPReport& report) noexcept;
 
   /**
    * @brief Applies one page of a Describe.
@@ -106,11 +105,11 @@ class HAPModel {
    * page arrives is the descriptor marked as belonging to its revision - a
    * half-arrived descriptor is not a descriptor.
    */
-  HAPRemoteNode* noteDescribe(const HAPPath& path,
+  HAPRemoteNode* noteDescribe(const HAPNodeId& id,
                               const HAPDescribeResponse& response) noexcept;
 
   /** @brief Applies a pong: revision and proof of life, without values. */
-  HAPRemoteNode* notePong(const HAPPath& path, const HAPPong& pong) noexcept;
+  HAPRemoteNode* notePong(const HAPNodeId& id, const HAPPong& pong) noexcept;
 
   /**
    * @brief Applies a policy answer: what this node will now ACTUALLY do.
@@ -126,19 +125,17 @@ class HAPModel {
    * a node offline, which is the right way to be wrong: a late diagnosis is
    * slower, an early one is a lie about a working node.
    */
-  HAPRemoteNode* notePolicy(const HAPPath& path,
+  HAPRemoteNode* notePolicy(const HAPNodeId& id,
                             const HAPSetPolicyResponse& response) noexcept;
 
   /**
-   * @brief Applies a ChildAttached, whose path is its parent's plus the index.
+   * @brief Applies a ChildAttached.
    *
-   * This is the one message that carries a MAC, and therefore the only way to
-   * notice that a device has MOVED: the same address turning up at a different
-   * path is a node re-bound elsewhere, not a second device. Its old entry is
-   * dropped, because leaving both would show one thing twice.
+   * This is the one message that carries a MAC, and so the one that says what a
+   * node IS. The model is keyed by id, so the same device turning up under a
+   * different parent is the same entry rather than a second device.
    */
-  HAPRemoteNode* noteChildAttached(const HAPPath& parentPath,
-                                   const HAPChildAttached& attached) noexcept;
+  HAPRemoteNode* noteChildAttached(const HAPChildAttached& attached) noexcept;
 
   /**
    * @brief Puts back a node this device was told about before it restarted.
@@ -157,22 +154,21 @@ class HAPModel {
    * pulled again. What comes back is only what somebody said, never what was
    * inferred.
    */
-  HAPRemoteNode* restore(const HAPPath& path, const HAPNodeId& id,
-                         HAPDeviceType deviceType, uint8_t capabilities,
+  HAPRemoteNode* restore(const HAPNodeId& id, HAPDeviceType deviceType,
+                         uint8_t capabilities,
                          uint16_t reportIntervalSec) noexcept;
 
   size_t size() const noexcept;
   bool isFull() const noexcept;
 
   const HAPRemoteNode* at(size_t position) const noexcept;
-  const HAPRemoteNode* find(const HAPPath& path) const noexcept;
-  const HAPRemoteNode* findById(const HAPNodeId& id) const noexcept;
+  const HAPRemoteNode* find(const HAPNodeId& id) const noexcept;
 
   /**
    * @brief The first node whose cached descriptor is out of date.
    * @return false when everything known is current.
    */
-  bool nextDescribeNeeded(HAPPath& path) const noexcept;
+  bool nextDescribeNeeded(HAPNodeId& id) const noexcept;
 
   /** @brief How many nodes are waiting to be described. */
   size_t describeBacklog() const noexcept;
@@ -184,12 +180,12 @@ class HAPModel {
   size_t sweepOffline() noexcept;
 
   /** @brief Removes a node and everything cached about it. */
-  bool forget(const HAPPath& path) noexcept;
+  bool forget(const HAPNodeId& id) noexcept;
 
   void clear() noexcept;
 
   /**
-   * @brief A path the model had never seen before.
+   * @brief A node the model had never seen before.
    *
    * Called once the message that revealed the node has been applied, so the
    * record handed over is populated rather than blank. That ordering is the
@@ -205,7 +201,7 @@ class HAPModel {
   void onPresenceChanged(PresenceHook hook) noexcept;
 
  private:
-  HAPRemoteNode* findMutable(const HAPPath& path) noexcept;
+  HAPRemoteNode* findMutable(const HAPNodeId& id) noexcept;
 
   /**
    * @brief observe() without the announcement: records the node, says if it is new.
@@ -213,7 +209,7 @@ class HAPModel {
    * Every note* method fills the record in after this returns, so they announce
    * for themselves once they are done - see announceIfNew().
    */
-  HAPRemoteNode* touch(const HAPPath& path, bool& isNew) noexcept;
+  HAPRemoteNode* touch(const HAPNodeId& id, bool& isNew) noexcept;
 
   /** @brief Fires onDiscovered for a record that is now complete. */
   void announceIfNew(bool isNew, const HAPRemoteNode& node) noexcept;

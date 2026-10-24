@@ -75,7 +75,7 @@ bool HAPBinder::handleAnnounce(const HAPAddress& from,
   // - the only way back was a factory reset of the PARENT, dropping its other
   // children with it.
   //
-  // The old index is kept rather than a fresh one taken. Links, paths and
+  // The old index is kept rather than a fresh one taken. Links and
   // anything a master has cached name a child by its index, and a device that
   // came back as 1.3 instead of 1.2 would break every one of them silently -
   // which is the same failure B8 exists to prevent.
@@ -258,8 +258,9 @@ bool HAPBinder::sendAnnouncement() noexcept {
 
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(HAPMessage::BindAnnounce);
-  frame.flags = HAPFlags::None;  // Not upstream: there is nothing above yet.
+  frame.flags = HAPFlags::None;
   frame.seq = ++seq_;
+  frame.src = transport_.localId();  // dst stays zero: nobody is addressed yet.
   frame.payload = payload;
   frame.payloadSize = static_cast<uint8_t>(writer.size());
 
@@ -284,7 +285,7 @@ bool HAPBinder::handleAccept(const HAPAddress& from, const HAPFrame& frame) noex
     return true;
   }
 
-  if (accept.childIndex < HAPPath::kMinHop || accept.childIndex > HAP_MAX_CHILDREN) {
+  if (accept.childIndex < HAPRouter::kMinChildIndex || accept.childIndex > HAP_MAX_CHILDREN) {
     HWarning("refused: %s offered index %u", from.toString().c_str(),
              accept.childIndex);
     return true;
@@ -324,7 +325,7 @@ bool HAPBinder::sendConfirm() noexcept {
 
   return writer.ok() &&
          transmit(HAPAddress::fromNodeId(router_.parentId()),
-                  HAPMessage::BindConfirm, HAPFlags::Upstream, payload,
+                  HAPMessage::BindConfirm, HAPFlags::None, payload,
                   writer.size());
 }
 
@@ -338,6 +339,8 @@ bool HAPBinder::transmit(const HAPAddress& to, HAPMessage type, uint8_t flags,
   frame.type = static_cast<uint8_t>(type);
   frame.flags = flags;
   frame.seq = ++seq_;
+  frame.dst = to.nodeId();
+  frame.src = transport_.localId();
   frame.payload = payload;
   frame.payloadSize = static_cast<uint8_t>(size);
 

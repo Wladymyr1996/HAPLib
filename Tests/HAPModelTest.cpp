@@ -21,17 +21,6 @@ HAPNodeId idFor(uint8_t id) noexcept {
   return HAPNodeId::fromMac(mac);
 }
 
-HAPPath pathOf(uint8_t a, uint8_t b = 0) noexcept {
-  HAPPath path;
-  path.append(a);
-
-  if (b != 0) {
-    path.append(b);
-  }
-
-  return path;
-}
-
 HAPReport reportOf(uint16_t rev, float celsius) noexcept {
   HAPReport report;
   report.descriptorRev = rev;
@@ -64,13 +53,20 @@ void testAReportIsDiscovery() noexcept {
   HAPModel model;
   CHECK(model.size() == 0);
 
-  // Nobody told the root this node exists. Its report arriving with src = 1.2
-  // is the whole of the announcement.
-  const HAPRemoteNode* node = model.noteReport(pathOf(1, 2), reportOf(0x9C4A, 21.5f));
+  // Nobody told the root this node exists. Its report arriving with a src the
+  // model has not met is the whole of the announcement.
+  const HAPRemoteNode* node = model.noteReport(idFor(0x12), reportOf(0x9C4A, 21.5f));
 
   CHECK(node != nullptr);
   CHECK(model.size() == 1);
-  CHECK(std::strcmp(node->path.toString().c_str(), "1.2") == 0);
+  CHECK(node->id == idFor(0x12));
+
+  // Heard of, not told of: it stays out of what the store keeps.
+  CHECK(!node->announced);
+
+  // And a source of zero is nobody, so there is nothing to key an entry by.
+  CHECK(model.noteReport(HAPNodeId::zero(), reportOf(0x9C4A, 21.5f)) == nullptr);
+  CHECK(model.size() == 1);
   CHECK(node->online);
   CHECK(node->descriptorRev == 0x9C4A);
 
@@ -80,9 +76,9 @@ void testAReportIsDiscovery() noexcept {
   CHECK(temperature->asFloat() == 21.5f);
 
   // A second report from the same node is the same node, not another one.
-  model.noteReport(pathOf(1, 2), reportOf(0x9C4A, 21.6f));
+  model.noteReport(idFor(0x12), reportOf(0x9C4A, 21.6f));
   CHECK(model.size() == 1);
-  CHECK(model.find(pathOf(1, 2))
+  CHECK(model.find(idFor(0x12))
             ->value(static_cast<uint8_t>(HAPClassId::Thermometer), 0, 0)
             ->asFloat() == 21.6f);
 }
@@ -90,55 +86,55 @@ void testAReportIsDiscovery() noexcept {
 void testTheRevisionDrivesEverything() noexcept {
   HAPModel model;
 
-  model.noteReport(pathOf(1), reportOf(0x9C4A, 21.5f));
+  model.noteReport(idFor(1), reportOf(0x9C4A, 21.5f));
 
   // Heard of, but not known: the model has a revision it has never seen a
   // descriptor for.
-  CHECK(model.find(pathOf(1))->needsDescribe());
+  CHECK(model.find(idFor(1))->needsDescribe());
   CHECK(model.describeBacklog() == 1);
 
-  HAPPath wanted;
+  HAPNodeId wanted;
   CHECK(model.nextDescribeNeeded(wanted));
-  CHECK(wanted == pathOf(1));
+  CHECK(wanted == idFor(1));
 
-  model.noteDescribe(pathOf(1), describeOf(0x9C4A, "Bedroom"));
+  model.noteDescribe(idFor(1), describeOf(0x9C4A, "Bedroom"));
 
-  CHECK(!model.find(pathOf(1))->needsDescribe());
+  CHECK(!model.find(idFor(1))->needsDescribe());
   CHECK(model.describeBacklog() == 0);
   CHECK(!model.nextDescribeNeeded(wanted));
-  CHECK(std::strcmp(model.find(pathOf(1))->name.c_str(), "Bedroom") == 0);
-  CHECK(model.find(pathOf(1))->instances.size() == 1);
+  CHECK(std::strcmp(model.find(idFor(1))->name.c_str(), "Bedroom") == 0);
+  CHECK(model.find(idFor(1))->instances.size() == 1);
 
   // Ordinary reports do not disturb it, or a master would re-read what a node
   // IS every minute.
-  model.noteReport(pathOf(1), reportOf(0x9C4A, 22.0f));
-  CHECK(!model.find(pathOf(1))->needsDescribe());
+  model.noteReport(idFor(1), reportOf(0x9C4A, 22.0f));
+  CHECK(!model.find(idFor(1))->needsDescribe());
 
   // A rename moved the revision, and the model notices without being told.
-  model.noteReport(pathOf(1), reportOf(0x17E2, 22.0f));
-  CHECK(model.find(pathOf(1))->needsDescribe());
+  model.noteReport(idFor(1), reportOf(0x17E2, 22.0f));
+  CHECK(model.find(idFor(1))->needsDescribe());
 
   // The cached descriptor is still there and still readable - it is stale, not
   // absent, which is what lets a user interface keep showing something.
-  CHECK(std::strcmp(model.find(pathOf(1))->name.c_str(), "Bedroom") == 0);
+  CHECK(std::strcmp(model.find(idFor(1))->name.c_str(), "Bedroom") == 0);
 
-  model.noteDescribe(pathOf(1), describeOf(0x17E2, "Nursery"));
-  CHECK(!model.find(pathOf(1))->needsDescribe());
-  CHECK(std::strcmp(model.find(pathOf(1))->name.c_str(), "Nursery") == 0);
+  model.noteDescribe(idFor(1), describeOf(0x17E2, "Nursery"));
+  CHECK(!model.find(idFor(1))->needsDescribe());
+  CHECK(std::strcmp(model.find(idFor(1))->name.c_str(), "Nursery") == 0);
 }
 
 void testAPongCarriesTheRevisionToo() noexcept {
   HAPModel model;
-  model.noteDescribe(pathOf(1), describeOf(0x1111, "Hall"));
-  CHECK(!model.find(pathOf(1))->needsDescribe());
+  model.noteDescribe(idFor(1), describeOf(0x1111, "Hall"));
+  CHECK(!model.find(idFor(1))->needsDescribe());
 
   // A mains node that reports nothing still answers a ping, and that is enough
   // to notice it has changed.
   HAPPong pong;
   pong.descriptorRev = 0x2222;
-  model.notePong(pathOf(1), pong);
+  model.notePong(idFor(1), pong);
 
-  CHECK(model.find(pathOf(1))->needsDescribe());
+  CHECK(model.find(idFor(1))->needsDescribe());
 }
 
 void testAHalfArrivedDescriptorIsNotADescriptor() noexcept {
@@ -148,12 +144,12 @@ void testAHalfArrivedDescriptorIsNotADescriptor() noexcept {
   first.pageIndex = 0;
   first.pageCount = 2;
   first.instanceCount = 2;
-  model.noteDescribe(pathOf(1), first);
+  model.noteDescribe(idFor(1), first);
 
   // Still incomplete, so the model keeps asking. Marking it current here would
   // leave half a descriptor cached forever.
-  CHECK(model.find(pathOf(1))->needsDescribe());
-  CHECK(model.find(pathOf(1))->instances.size() == 1);
+  CHECK(model.find(idFor(1))->needsDescribe());
+  CHECK(model.find(idFor(1))->instances.size() == 1);
 
   HAPDescribeResponse second = describeOf(0x9C4A, "Boiler");
   second.pageIndex = 1;
@@ -161,25 +157,24 @@ void testAHalfArrivedDescriptorIsNotADescriptor() noexcept {
   second.instanceCount = 2;
   second.instances[0].instanceId = 1;
   second.instances[0].name = "Return";
-  model.noteDescribe(pathOf(1), second);
+  model.noteDescribe(idFor(1), second);
 
-  CHECK(!model.find(pathOf(1))->needsDescribe());
+  CHECK(!model.find(idFor(1))->needsDescribe());
 
   // Both pages, in order, and not a duplicate of the first.
-  CHECK(model.find(pathOf(1))->instances.size() == 2);
-  CHECK(std::strcmp(model.find(pathOf(1))->instances[1].name.c_str(), "Return") == 0);
+  CHECK(model.find(idFor(1))->instances.size() == 2);
+  CHECK(std::strcmp(model.find(idFor(1))->instances[1].name.c_str(), "Return") == 0);
 
   // A new page 0 replaces rather than appends, or a re-read would double
   // everything.
-  model.noteDescribe(pathOf(1), describeOf(0x9C4A, "Boiler"));
-  CHECK(model.find(pathOf(1))->instances.size() == 1);
+  model.noteDescribe(idFor(1), describeOf(0x9C4A, "Boiler"));
+  CHECK(model.find(idFor(1))->instances.size() == 1);
 }
 
 void testChildAttachedNamesTheNodeBeforeItSpeaks() noexcept {
   HAPModel model;
 
-  // The controller's notice climbed one hop, so the root sees it with
-  // src = [1] and the new node is at 1 + 2.
+  // The controller's notice climbed one hop; what it names is the new node.
   HAPChildAttached attached;
   attached.childIndex = 2;
   attached.deviceType = HAPDeviceType::Sensor;
@@ -188,11 +183,11 @@ void testChildAttachedNamesTheNodeBeforeItSpeaks() noexcept {
   attached.descriptorRev = 0x9C4A;
   idFor(0x33).toMac(attached.mac);
 
-  const HAPRemoteNode* node = model.noteChildAttached(pathOf(1), attached);
+  const HAPRemoteNode* node = model.noteChildAttached(attached);
 
   CHECK(node != nullptr);
-  CHECK(std::strcmp(node->path.toString().c_str(), "1.2") == 0);
   CHECK(node->id == idFor(0x33));
+  CHECK(node->announced);
   CHECK(node->isBatteryPowered());
 
   // Which is the point: a battery sensor is known at the moment it binds rather
@@ -200,8 +195,8 @@ void testChildAttachedNamesTheNodeBeforeItSpeaks() noexcept {
   CHECK(node->reportIntervalSec == 60);
   CHECK(node->needsDescribe());
 
-  CHECK(model.findById(idFor(0x33)) != nullptr);
-  CHECK(model.findById(idFor(0x99)) == nullptr);
+  CHECK(model.find(idFor(0x33)) != nullptr);
+  CHECK(model.find(idFor(0x99)) == nullptr);
 }
 
 void testADeviceThatMovedIsOneDeviceStill() noexcept {
@@ -213,20 +208,18 @@ void testADeviceThatMovedIsOneDeviceStill() noexcept {
   attached.descriptorRev = 0x9C4A;
   idFor(0x33).toMac(attached.mac);
 
-  model.noteChildAttached(pathOf(1), attached);
+  model.noteChildAttached(attached);
   CHECK(model.size() == 1);
 
   // The same MAC turns up under a different parent - somebody reset it and
   // bound it elsewhere.
   attached.childIndex = 1;
-  model.noteChildAttached(pathOf(3), attached);
+  model.noteChildAttached(attached);
 
-  // One device, at its new address. Keeping both would show one thing twice,
-  // and anything pointing at the old path would fail quietly forever.
+  // One device. The id is the key, so there is nothing to move and nothing to
+  // show twice.
   CHECK(model.size() == 1);
-  CHECK(model.find(pathOf(1, 2)) == nullptr);
-  CHECK(model.find(pathOf(3, 1)) != nullptr);
-  CHECK(model.findById(idFor(0x33))->path == pathOf(3, 1));
+  CHECK(model.find(idFor(0x33)) != nullptr);
 }
 
 void testSilenceIsMeasuredAgainstAPromise() noexcept {
@@ -237,9 +230,9 @@ void testSilenceIsMeasuredAgainstAPromise() noexcept {
   attached.reportIntervalSec = 1;  // A second, so the test can wait for it.
   attached.descriptorRev = 0x9C4A;
   idFor(0x44).toMac(attached.mac);
-  model.noteChildAttached(HAPPath(), attached);
+  model.noteChildAttached(attached);
 
-  CHECK(model.find(pathOf(1))->online);
+  CHECK(model.find(idFor(0x44))->online);
   CHECK(model.sweepOffline() == 0);
 
   HSystemUtils::sleep(1000 * HAP_OFFLINE_INTERVALS + 100);
@@ -247,12 +240,12 @@ void testSilenceIsMeasuredAgainstAPromise() noexcept {
   // Three missed reports. The sweep reports how many CHANGED, so a caller acts
   // once rather than on every pass.
   CHECK(model.sweepOffline() == 1);
-  CHECK(!model.find(pathOf(1))->online);
+  CHECK(!model.find(idFor(0x44))->online);
   CHECK(model.sweepOffline() == 0);
 
   // And it comes back on its own, with no rebind and nothing to reset.
-  model.noteReport(pathOf(1), reportOf(0x9C4A, 21.5f));
-  CHECK(model.find(pathOf(1))->online);
+  model.noteReport(idFor(0x44), reportOf(0x9C4A, 21.5f));
+  CHECK(model.find(idFor(0x44))->online);
 }
 
 void testANodeThatPromisedNothingIsNeverCalledDead() noexcept {
@@ -264,12 +257,12 @@ void testANodeThatPromisedNothingIsNeverCalledDead() noexcept {
   attached.childIndex = 1;
   attached.reportIntervalSec = 0;
   idFor(0x55).toMac(attached.mac);
-  model.noteChildAttached(HAPPath(), attached);
+  model.noteChildAttached(attached);
 
   HSystemUtils::sleep(100);
 
   CHECK(model.sweepOffline() == 0);
-  CHECK(model.find(pathOf(1))->online);
+  CHECK(model.find(idFor(0x55))->online);
 }
 
 void testHooksFireOnceEach() noexcept {
@@ -285,16 +278,16 @@ void testHooksFireOnceEach() noexcept {
   model.onPresenceChanged(
       HAPModel::PresenceHook::create([](const HAPRemoteNode&) { ++presence; }));
 
-  model.noteReport(pathOf(1), reportOf(0x9C4A, 21.5f));
+  model.noteReport(idFor(1), reportOf(0x9C4A, 21.5f));
   CHECK(discovered == 1);
 
   // Already known: a hook that fired on every report would be a stream, not an
   // event.
-  model.noteReport(pathOf(1), reportOf(0x9C4A, 21.6f));
+  model.noteReport(idFor(1), reportOf(0x9C4A, 21.6f));
   CHECK(discovered == 1);
   CHECK(presence == 0);
 
-  model.noteReport(pathOf(2), reportOf(0x1234, 19.0f));
+  model.noteReport(idFor(2), reportOf(0x1234, 19.0f));
   CHECK(discovered == 2);
 }
 
@@ -302,20 +295,20 @@ void testTheModelHasABottom() noexcept {
   HAPModel model;
 
   for (uint8_t i = 1; i <= HAP_MODEL_MAX_NODES; ++i) {
-    CHECK(model.noteReport(pathOf(i), reportOf(0x1000 + i, 20.0f)) != nullptr);
+    CHECK(model.noteReport(idFor(i), reportOf(0x1000 + i, 20.0f)) != nullptr);
   }
 
   CHECK(model.isFull());
 
   // A model that quietly forgot the oldest node to fit a new one would show a
   // network that keeps losing devices at random.
-  CHECK(model.noteReport(pathOf(HAP_MODEL_MAX_NODES + 1),
+  CHECK(model.noteReport(idFor(HAP_MODEL_MAX_NODES + 1),
                          reportOf(0x2000, 20.0f)) == nullptr);
   CHECK(model.size() == HAP_MODEL_MAX_NODES);
 
-  CHECK(model.forget(pathOf(1)));
-  CHECK(!model.forget(pathOf(1)));
-  CHECK(model.noteReport(pathOf(HAP_MODEL_MAX_NODES + 1),
+  CHECK(model.forget(idFor(1)));
+  CHECK(!model.forget(idFor(1)));
+  CHECK(model.noteReport(idFor(HAP_MODEL_MAX_NODES + 1),
                          reportOf(0x2000, 20.0f)) != nullptr);
 
   model.clear();
@@ -324,9 +317,9 @@ void testTheModelHasABottom() noexcept {
 
 void testAValueThatIsNotThere() noexcept {
   HAPModel model;
-  model.noteReport(pathOf(1), reportOf(0x9C4A, 21.5f));
+  model.noteReport(idFor(1), reportOf(0x9C4A, 21.5f));
 
-  const HAPRemoteNode* node = model.find(pathOf(1));
+  const HAPRemoteNode* node = model.find(idFor(1));
   CHECK(node->value(static_cast<uint8_t>(HAPClassId::Hygrometer), 0, 0) == nullptr);
   CHECK(node->value(static_cast<uint8_t>(HAPClassId::Thermometer), 1, 0) == nullptr);
   CHECK(node->value(static_cast<uint8_t>(HAPClassId::Thermometer), 0, 1) == nullptr);
@@ -337,10 +330,10 @@ void testAValueThatIsNotThere() noexcept {
   failed.descriptorRev = 0x9C4A;
   failed.entries.push_back(HAPValueEntry(
       static_cast<uint8_t>(HAPClassId::Thermometer), 0, 0, HValue()));
-  model.noteReport(pathOf(1), failed);
+  model.noteReport(idFor(1), failed);
 
   const HValue* reading =
-      model.find(pathOf(1))->value(static_cast<uint8_t>(HAPClassId::Thermometer), 0, 0);
+      model.find(idFor(1))->value(static_cast<uint8_t>(HAPClassId::Thermometer), 0, 0);
   CHECK(reading != nullptr);
   CHECK(reading->isNull());
 }

@@ -127,10 +127,11 @@ class HAPStore {
    * becomes an entry that can neither be recognised when the device moves nor
    * ever be marked offline.
    *
-   * Sixteen bytes a node: the path, the MAC, the capabilities, the device type
-   * and the interval. That is 32 hexadecimal characters, which is exactly what
-   * HVALUE_MAX_STRING_LEN is already required to hold - see the static_assert
-   * in HAPStore.cpp, which the link key set.
+   * Twelve bytes a node: the node id, the capabilities, the device type and the
+   * interval. That is 24 hexadecimal characters, which HVALUE_MAX_STRING_LEN is
+   * already required to hold - see the static_assert in HAPStore.cpp, which the
+   * link key set. A record in the older, longer layout fails to parse and is
+   * skipped with a warning.
    *
    * **Only what somebody said, never what was inferred.** Names, instances and
    * values are a cache and are not written: a master that has been away should

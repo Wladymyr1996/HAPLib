@@ -2,7 +2,7 @@
 
 #include <HAP.h>
 #include <HAPCodec/HAPCodec.hpp>
-#include <HAPPath/HAPPath.hpp>
+#include <HAPNodeId/HAPNodeId.hpp>
 #include <HValue/HValue.hpp>
 
 /**
@@ -95,15 +95,15 @@ struct HAPValueEntry {
 };
 
 /**
- * @brief One port, addressed from wherever the reference is stored.
+ * @brief One port on a node, named by the node's id.
  *
- * Used only by links, and the path is always DOWNWARD - a link lives at the
- * lowest common ancestor of its two endpoints, so both of them are at or below
- * it and neither can need addressing upward. Nine bytes.
+ * Used only by links. A link lives at the lowest common ancestor of its two
+ * endpoints, so a zero node means "the node holding the link" - what an empty
+ * path used to mean. Eleven bytes.
  */
 struct HAPPortRef {
-  /** Downward from the node holding this reference; empty means that node. */
-  HAPPath path;
+  /** The node the port is on; zero means the node holding this reference. */
+  HAPNodeId node;
 
   uint8_t classId = 0;
   uint8_t instanceId = 0;
@@ -115,6 +115,6 @@ struct HAPPortRef {
   bool operator==(const HAPPortRef& other) const noexcept;
   bool operator!=(const HAPPortRef& other) const noexcept;
 
-  /** Fixed: a length byte, HAP_MAX_DEPTH hop bytes, and three identifiers. */
-  static constexpr size_t kEncodedSize = 1 + HAP_MAX_DEPTH + 3;
+  /** Fixed: a node id and three identifiers. */
+  static constexpr size_t kEncodedSize = HAP_NODE_ID_LEN + 3;
 };

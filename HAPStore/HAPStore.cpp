@@ -422,8 +422,8 @@ bool HAPStore::saveNames(const HAPNode& node) noexcept {
 
 namespace {
 
-/** path length + hops + mac + caps + type + interval. 32 hex characters. */
-constexpr size_t kModelRecordSize = 1 + HAP_MAX_DEPTH + HAP_MAC_LEN + 4;
+/** node id + caps + type + interval. 24 hex characters. */
+constexpr size_t kModelRecordSize = HAP_NODE_ID_LEN + 4;
 
 static_assert(kModelRecordSize * 2 <= HVALUE_MAX_STRING_LEN,
               "A model record is stored as hexadecimal text and must fit in an "
@@ -444,16 +444,14 @@ bool HAPStore::saveModel(const HAPModel& model) noexcept {
     // A node nobody has named is not worth keeping: it was built from reports
     // alone, so writing it would preserve exactly the blank entry this file
     // exists to prevent.
-    if (node->id.isZero()) {
+    if (!node->announced) {
       continue;
     }
 
     uint8_t bytes[kModelRecordSize] = {};
-    bytes[0] = node->path.length();
-    std::memcpy(bytes + 1, node->path.bytes(), HAP_MAX_DEPTH);
-    node->id.toMac(bytes + 1 + HAP_MAX_DEPTH);
+    std::memcpy(bytes, node->id.bytes, HAP_NODE_ID_LEN);
 
-    uint8_t* tail = bytes + 1 + HAP_MAX_DEPTH + HAP_MAC_LEN;
+    uint8_t* tail = bytes + HAP_NODE_ID_LEN;
     tail[0] = node->capabilities;
     tail[1] = static_cast<uint8_t>(node->deviceType);
     tail[2] = static_cast<uint8_t>(node->reportIntervalSec >> 8);
@@ -501,18 +499,11 @@ size_t HAPStore::loadModel(HAPModel& model) noexcept {
       continue;
     }
 
-    const HAPPath nodePath = HAPPath::fromBytes(bytes + 1, bytes[0]);
-    if (nodePath.isEmpty()) {
-      // An empty path addresses the node holding the model, which is not
-      // something the model may contain.
-      continue;
-    }
-
-    const uint8_t* tail = bytes + 1 + HAP_MAX_DEPTH + HAP_MAC_LEN;
+    const uint8_t* tail = bytes + HAP_NODE_ID_LEN;
     const uint16_t interval =
         static_cast<uint16_t>((static_cast<uint16_t>(tail[2]) << 8) | tail[3]);
 
-    if (model.restore(nodePath, HAPNodeId::fromMac(bytes + 1 + HAP_MAX_DEPTH),
+    if (model.restore(HAPNodeId::fromBytes(bytes),
                       static_cast<HAPDeviceType>(tail[1]), tail[0],
                       interval) != nullptr) {
       ++restored;

@@ -97,7 +97,7 @@ struct HAPBindConfirm {
  * elsewhere in the tree and rewrite the links that referenced it.
  */
 struct HAPChildAttached {
-  /** Relative to the sender; the root appends it to the frame's source path. */
+  /** The index the sender gave the new node; the model is keyed by MAC, so this is informational. */
   uint8_t childIndex = 0;
 
   HAPDeviceType deviceType = HAPDeviceType::Sensor;

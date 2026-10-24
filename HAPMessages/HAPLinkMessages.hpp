@@ -10,15 +10,15 @@
  *
  * A link is installed at the lowest common ancestor of its two endpoints - the
  * only node that both SEES the source value and HAS a route to the destination.
- * Which is why both references inside one are downward paths: from the node
- * holding the link, everything it links is below it.
+ * Both references name their node by id; a zero id means the node holding the
+ * link.
  */
 
 /**
  * @brief One wire: a source out port, a destination in port, and a slot.
  *
  * Doubles as the SetLinkRequest payload and as one record of a ListLinksResponse,
- * because they are the same nineteen bytes and describing them twice would be a
+ * because they are the same twenty-three bytes and describing them twice would be a
  * way for the two to disagree.
  */
 struct HAPLinkSpec {

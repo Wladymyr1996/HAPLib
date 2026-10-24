@@ -36,8 +36,6 @@
  *   by definition neither parent nor child;
  * - a frame for a **sleeping** child is queued rather than sent, and delivered
  *   the moment that child speaks;
- * - a frame that cannot be forwarded produces a `RouteError` naming the hop,
- *   rather than a silence the far end has to time out;
  * - a report that passes through feeds any link watching it **and** carries on
  *   upward - a tap, not a diversion;
  * - a node with something to say says it, on its own schedule.
@@ -156,10 +154,10 @@ class HAPStack {
    */
   bool announceReportInterval() noexcept;
 
-  bool ping(const HAPPath& path) noexcept;
-  bool requestDescribe(const HAPPath& path, uint8_t fromPage = 0) noexcept;
-  bool requestRead(const HAPPath& path, const HAPReadRequest& request) noexcept;
-  bool requestWrite(const HAPPath& path, const HAPWriteRequest& request) noexcept;
+  bool ping(const HAPNodeId& node) noexcept;
+  bool requestDescribe(const HAPNodeId& node, uint8_t fromPage = 0) noexcept;
+  bool requestRead(const HAPNodeId& node, const HAPReadRequest& request) noexcept;
+  bool requestWrite(const HAPNodeId& node, const HAPWriteRequest& request) noexcept;
 
   /**
    * @brief Changes how often a node speaks, and how far a value must move first.
@@ -172,12 +170,12 @@ class HAPStack {
    * The answer may not be what was asked: a battery node clamps an interval to
    * its wake period and says so in HAPSetPolicyResponse.
    */
-  bool requestSetPolicy(const HAPPath& path,
+  bool requestSetPolicy(const HAPNodeId& node,
                         const HAPSetPolicyRequest& request) noexcept;
 
-  bool requestSetName(const HAPPath& path,
+  bool requestSetName(const HAPNodeId& node,
                       const HAPSetNameRequest& request) noexcept;
-  bool requestSetLink(const HAPPath& path, const HAPLinkSpec& spec) noexcept;
+  bool requestSetLink(const HAPNodeId& node, const HAPLinkSpec& spec) noexcept;
 
   // -- hooks ---------------------------------------------------------------
 
@@ -210,7 +208,7 @@ class HAPStack {
 
   /** @brief A report arrived from below - delivered here, or passing through. */
   using ValuesHook =
-      etl::delegate<void(const HAPPath& from, const HAPReport& report)>;
+      etl::delegate<void(const HAPNodeId& from, const HAPReport& report)>;
   void onValues(ValuesHook hook) noexcept;
 
   /**
@@ -219,7 +217,7 @@ class HAPStack {
    *        a different one than this node had. Delivered here or passing
    *        through; already in the child table and the model.
    */
-  using IntervalHook = etl::delegate<void(const HAPPath& from, uint16_t intervalSec)>;
+  using IntervalHook = etl::delegate<void(const HAPNodeId& from, uint16_t intervalSec)>;
   void onReportInterval(IntervalHook hook) noexcept;
 
   /** @brief This node gained a child, or gained a parent. */
@@ -246,7 +244,7 @@ class HAPStack {
    * A DescribeResponse from below: into the model, and its interval - when it
    * carries one - into the child table and the hook, if it moved.
    */
-  void adoptDescribe(const HAPPath& from, const HAPDescribeResponse& response) noexcept;
+  void adoptDescribe(const HAPNodeId& from, const HAPDescribeResponse& response) noexcept;
 
   /** Sends a frame to a child, or holds it if that child is asleep. */
   bool forwardToChild(HAPFrame& frame, uint8_t childIndex) noexcept;
@@ -256,7 +254,7 @@ class HAPStack {
 
   bool sendUpstream(HAPMessage type, uint8_t flags, const uint8_t* payload,
                     size_t size) noexcept;
-  bool sendDownstream(const HAPPath& path, HAPMessage type, uint8_t flags,
+  bool sendDownstream(const HAPNodeId& node, HAPMessage type, uint8_t flags,
                       const uint8_t* payload, size_t size,
                       uint16_t seq = 0) noexcept;
   bool respond(const HAPFrame& to, HAPMessage type, const uint8_t* payload,

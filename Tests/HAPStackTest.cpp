@@ -29,17 +29,6 @@ HAPNodeId idFor(uint8_t id) noexcept {
   return HAPNodeId::fromMac(mac);
 }
 
-HAPPath pathOf(uint8_t a, uint8_t b = 0) noexcept {
-  HAPPath path;
-  path.append(a);
-
-  if (b != 0) {
-    path.append(b);
-  }
-
-  return path;
-}
-
 /** One device: a radio, a model of itself, and the stack that runs it. */
 class Device {
  public:
@@ -128,7 +117,7 @@ void testABoundPairReportsByItself() noexcept {
   slave.node().instanceAt(0)->publish(0, HValue(21.5f));
   run(bus, devices, 2, 4);
 
-  const HAPRemoteNode* known = master.model().find(pathOf(1));
+  const HAPRemoteNode* known = master.model().find(slave.id());
   REQUIRE(known != nullptr);
   CHECK(known->online);
 
@@ -170,12 +159,12 @@ void testTheMasterFillsInWhatItDoesNotKnow() noexcept {
 
   Device* devices[] = {&master, &slave};
 
-  HAPPath wanted;
+  HAPNodeId wanted;
   CHECK(master.model().nextDescribeNeeded(wanted));
   CHECK(master.stack().requestDescribe(wanted));
   run(bus, devices, 2, 4);
 
-  const HAPRemoteNode* known = master.model().find(pathOf(1));
+  const HAPRemoteNode* known = master.model().find(slave.id());
   REQUIRE(known != nullptr);
   CHECK(!known->needsDescribe());
   CHECK(std::strcmp(known->name.c_str(), "Bedroom") == 0);
@@ -190,14 +179,14 @@ void testTheMasterFillsInWhatItDoesNotKnow() noexcept {
   rename.instanceId = 0;
   rename.name = HAPName("Ліжко");
 
-  CHECK(master.stack().requestSetName(pathOf(1), rename));
+  CHECK(master.stack().requestSetName(slave.id(), rename));
   run(bus, devices, 2, 4);
 
   CHECK(std::strcmp(slave.node().instanceAt(0)->name().c_str(), "Ліжко") == 0);
 
   HSystemUtils::sleep(1100);
   run(bus, devices, 2, 4);
-  const HAPRemoteNode* afterRename = master.model().find(pathOf(1));
+  const HAPRemoteNode* afterRename = master.model().find(slave.id());
   REQUIRE(afterRename != nullptr);
   CHECK(afterRename->needsDescribe());
 }
@@ -232,7 +221,7 @@ void testACommandReachesADriver() noexcept {
 
   const HAPWriteRequest request(static_cast<uint8_t>(HAPClassId::Lamp), 0, 0,
                                 HValue(true));
-  CHECK(master.stack().requestWrite(pathOf(1), request));
+  CHECK(master.stack().requestWrite(lamp.id(), request));
   run(bus, devices, 2, 4);
 
   // The command reached something that can act on it, which is the only part of
@@ -270,7 +259,7 @@ void testASleepingChildIsQueuedFor() noexcept {
   rename.target = HAPSetNameRequest::Target::Node;
   rename.name = HAPName("Nursery");
 
-  CHECK(master.stack().requestSetName(pathOf(1), rename));
+  CHECK(master.stack().requestSetName(sensor.id(), rename));
   CHECK(master.stack().queue().size() == 1);
   CHECK(master.stack().queue().has(1));
 
@@ -303,12 +292,12 @@ void testASecondCommandForASleepingChildIsRefused() noexcept {
   HAPSetNameRequest rename;
   rename.target = HAPSetNameRequest::Target::Node;
   rename.name = HAPName("First");
-  CHECK(master.stack().requestSetName(pathOf(1), rename));
+  CHECK(master.stack().requestSetName(sensor.id(), rename));
 
   // One frame per sleeping child. A queue that stacked them would deliver
   // commands minutes apart in an order nobody chose.
   rename.name = HAPName("Second");
-  CHECK(!master.stack().requestSetName(pathOf(1), rename));
+  CHECK(!master.stack().requestSetName(sensor.id(), rename));
   CHECK(master.stack().queue().size() == 1);
 }
 
@@ -396,7 +385,7 @@ void testAMasterThatRebootsCanStillHearItsChildren() noexcept {
   // before the reboot. An interval of zero means "promises nothing", and a node
   // that promised nothing is never called offline, so a master that got this
   // wrong could watch a child die and never say so.
-  const HAPRemoteNode* restored = master.model().find(pathOf(1));
+  const HAPRemoteNode* restored = master.model().find(sensor.id());
   REQUIRE(restored != nullptr);
   CHECK(restored->reportIntervalSec == 1);
   CHECK(restored->id == sensor.id());
@@ -411,7 +400,7 @@ void testAMasterThatRebootsCanStillHearItsChildren() noexcept {
   HSystemUtils::sleep(1100);
   run(bus, devices, 2, 6);
 
-  const HAPRemoteNode* known = master.model().find(pathOf(1));
+  const HAPRemoteNode* known = master.model().find(sensor.id());
   REQUIRE(known != nullptr);
 
   const HValue* reading =
@@ -442,19 +431,19 @@ void testANodeIsNotCalledOfflineForObeying() noexcept {
   Device* devices[] = {&master, &sensor};
   run(bus, devices, 2, 4);
 
-  const HAPRemoteNode* known = master.model().find(pathOf(1));
+  const HAPRemoteNode* known = master.model().find(sensor.id());
   REQUIRE(known != nullptr);
   CHECK(known->reportIntervalSec == 1);
 
   const HAPSetPolicyRequest request(
       static_cast<uint8_t>(HAPClassId::Thermometer), 0, 0, 3600, HValue());
 
-  CHECK(master.stack().requestSetPolicy(pathOf(1), request));
+  CHECK(master.stack().requestSetPolicy(sensor.id(), request));
   run(bus, devices, 2, 6);
 
   // The answer came back and the model believed it. This is the whole fix: an
   // interval nobody promised is not one to hold a node to.
-  known = master.model().find(pathOf(1));
+  known = master.model().find(sensor.id());
   REQUIRE(known != nullptr);
   CHECK(known->reportIntervalSec == 3600);
 
@@ -462,7 +451,7 @@ void testANodeIsNotCalledOfflineForObeying() noexcept {
   HSystemUtils::sleep(1100 * HAP_OFFLINE_INTERVALS);
   master.model().sweepOffline();
 
-  known = master.model().find(pathOf(1));
+  known = master.model().find(sensor.id());
   REQUIRE(known != nullptr);
   CHECK(known->online);
 }
@@ -511,7 +500,7 @@ void testAResetDeviceCanRejoinTheParentThatStillListsIt() noexcept {
   const HAPChild* after = master.stack().router().childById(sensor.id());
   REQUIRE(after != nullptr);
 
-  // THE SAME INDEX. Links, paths and anything a master has cached name a child
+  // THE SAME INDEX. Links and anything a master has cached name a child
   // by index; coming back as a different one breaks every reference silently,
   // which is the failure B8 exists to prevent.
   CHECK(after->index == wasIndex);
@@ -524,10 +513,7 @@ void testAResetDeviceCanRejoinTheParentThatStillListsIt() noexcept {
   HSystemUtils::sleep(1100);
   run(bus, devices, 3, 6);
 
-  HAPPath at;
-  at.append(wasIndex);
-
-  const HAPRemoteNode* known = master.model().find(at);
+  const HAPRemoteNode* known = master.model().find(sensor.id());
   REQUIRE(known != nullptr);
 
   const HValue* reading =
@@ -571,7 +557,7 @@ void testARebootedMasterStillKnowsItsGrandchildren() noexcept {
     Device* devices[] = {&root, &middle, &leaf};
     run(bus, devices, 3, 6);
 
-    const HAPRemoteNode* seen = root.model().find(pathOf(1, 1));
+    const HAPRemoteNode* seen = root.model().find(leaf.id());
     REQUIRE(seen != nullptr);
     CHECK(seen->id == leaf.id());
   }
@@ -596,7 +582,7 @@ void testARebootedMasterStillKnowsItsGrandchildren() noexcept {
   // frame has arrived.
   CHECK(root.model().size() == 2);
 
-  const HAPRemoteNode* known = root.model().find(pathOf(1, 1));
+  const HAPRemoteNode* known = root.model().find(leaf.id());
   REQUIRE(known != nullptr);
   CHECK(known->id == leaf.id());
   CHECK(known->reportIntervalSec == 1);
@@ -660,20 +646,19 @@ void testAThreeNodeChain() noexcept {
   Device* devices[] = {&root, &middle, &leaf};
   run(bus, devices, 3, 6);
 
-  // B1: the root heard about a node it never spoke to, at an address nobody
-  // computed - the ChildAttached climbed and accumulated its own hop.
-  const HAPRemoteNode* known = root.model().find(pathOf(1, 1));
+  // B1: the root heard about a node it never spoke to - the ChildAttached
+  // climbed, and the MAC inside it names the new node.
+  const HAPRemoteNode* known = root.model().find(leaf.id());
   REQUIRE(known != nullptr);
   CHECK(known->id == leaf.id());
   CHECK(known->reportIntervalSec == 1);
 
-  // B2: a report from the bottom, two hops, arriving with a path that built
-  // itself on the way.
+  // B2: a report from the bottom, two hops, arriving with the originator's id.
   leaf.node().instanceAt(0)->publish(0, HValue(21.5f));
   HSystemUtils::sleep(1100);
   run(bus, devices, 3, 8);
 
-  const HAPRemoteNode* bottom = root.model().find(pathOf(1, 1));
+  const HAPRemoteNode* bottom = root.model().find(leaf.id());
   REQUIRE(bottom != nullptr);
 
   const HValue* reading =
@@ -681,24 +666,24 @@ void testAThreeNodeChain() noexcept {
   REQUIRE(reading != nullptr);
   CHECK(reading->asFloat() == 21.5f);
 
-  // B4: a diagnosis rather than a timeout. Child 3 of the middle node does not
-  // exist, and the middle node is the one that can say so.
+  // B4: a command for an id nobody holds goes out and is lost. There is no
+  // RouteError to say why, and nothing is modelled for it.
   HAPReadRequest read;
-  CHECK(root.stack().requestRead(pathOf(1, 3), read));
+  CHECK(root.stack().requestRead(idFor(0x77), read));
   run(bus, devices, 3, 6);
-  CHECK(root.model().find(pathOf(1, 3)) == nullptr);
+  CHECK(root.model().find(idFor(0x77)) == nullptr);
 }
 
 
 /** Counts what HAPStack::onReportInterval() said. */
 struct IntervalSeen {
-  void seen(const HAPPath& from, uint16_t seconds) noexcept {
-    path = from;
+  void seen(const HAPNodeId& from, uint16_t seconds) noexcept {
+    node = from;
     intervalSec = seconds;
     ++calls;
   }
 
-  HAPPath path;
+  HAPNodeId node;
   uint16_t intervalSec = 0;
   int calls = 0;
 };
@@ -741,7 +726,7 @@ void testAMiddleNodeHearsItsChildsNewInterval() noexcept {
   // A report passing through the middle node reaches its model as well.
   leaf.node().instanceAt(0)->publish(0, HValue(21.5f));
   run(bus, devices, 3, 8);
-  const HAPRemoteNode* heard = middle.model().find(pathOf(1));
+  const HAPRemoteNode* heard = middle.model().find(leaf.id());
   REQUIRE(heard != nullptr);
   const HValue* reading = heard->value(static_cast<uint8_t>(HAPClassId::Thermometer), 0, 0);
   REQUIRE(reading != nullptr);
@@ -755,19 +740,19 @@ void testAMiddleNodeHearsItsChildsNewInterval() noexcept {
   const HAPChild* child = middle.stack().router().child(1);
   REQUIRE(child != nullptr);
   CHECK(child->reportIntervalSec == 15);
-  const HAPRemoteNode* below = middle.model().find(pathOf(1));
+  const HAPRemoteNode* below = middle.model().find(leaf.id());
   REQUIRE(below != nullptr);
   CHECK(below->reportIntervalSec == 15);
   CHECK(atMiddle.calls == 1);
   CHECK(atMiddle.intervalSec == 15);
-  CHECK(atMiddle.path == pathOf(1));
+  CHECK(atMiddle.node == leaf.id());
 
   // And the root, two hops up, as before.
-  const HAPRemoteNode* far = root.model().find(pathOf(1, 1));
+  const HAPRemoteNode* far = root.model().find(leaf.id());
   REQUIRE(far != nullptr);
   CHECK(far->reportIntervalSec == 15);
   CHECK(atRoot.calls == 1);
-  CHECK(atRoot.path == pathOf(1, 1));
+  CHECK(atRoot.node == leaf.id());
 }
 
 void testAMasterThatMissedTheNoticeLearnsTheIntervalFromADescribe() noexcept {
@@ -799,66 +784,22 @@ void testAMasterThatMissedTheNoticeLearnsTheIntervalFromADescribe() noexcept {
 
   leaf.node().setReportIntervalSec(600);  // no announceReportInterval()
 
-  CHECK(root.stack().requestDescribe(pathOf(1)));
+  CHECK(root.stack().requestDescribe(leaf.id()));
   run(bus, devices, 2, 6);
 
   child = root.stack().router().child(1);
   REQUIRE(child != nullptr);
   CHECK(child->reportIntervalSec == 600);
-  const HAPRemoteNode* known = root.model().find(pathOf(1));
+  const HAPRemoteNode* known = root.model().find(leaf.id());
   REQUIRE(known != nullptr);
   CHECK(known->reportIntervalSec == 600);
   CHECK(seen.calls == 1);
   CHECK(seen.intervalSec == 600);
 
   // Described again with nothing changed: no news, no hook.
-  CHECK(root.stack().requestDescribe(pathOf(1)));
+  CHECK(root.stack().requestDescribe(leaf.id()));
   run(bus, devices, 2, 6);
   CHECK(seen.calls == 1);
-}
-
-void testAChildForgottenWhileOffLeavesNoOrphan() noexcept {
-  reset();
-
-  // A settings page removes a child from the stored table while the mesh is not
-  // running. The stored model still holds it; the next boot must not.
-  HAPLoopbackBus bus;
-  {
-    Device root(1, bus, HAPDeviceType::Gateway, HAPCaps::CanBeMaster, "Gateway", 0);
-    Device leaf(3, bus, HAPDeviceType::Sensor, HAPCaps::None, "Bedroom", 60);
-    leaf.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
-
-    root.useModel();
-    root.stack().begin();
-    leaf.stack().begin();
-    CHECK(bindPair(bus, root, leaf));
-
-    Device* devices[] = {&root, &leaf};
-    run(bus, devices, 2, 6);
-    REQUIRE(root.model().find(pathOf(1)) != nullptr);
-  }
-
-  HAPModel written;
-  CHECK(HAPStore::loadModel(written) == 1);
-
-  // What the page does: the child table without it.
-  HAPRouter table;
-  HAPStore::loadChildren(table);
-  CHECK(table.removeChild(1));
-  CHECK(HAPStore::saveChildren(table));
-
-  // One process, one store: the leaf's own bind is not the root's.
-  HAPStore::clearBind();
-
-  Device root(1, bus, HAPDeviceType::Gateway, HAPCaps::CanBeMaster, "Gateway", 0);
-  root.useModel();
-  CHECK(root.stack().begin());
-  CHECK(root.model().find(pathOf(1)) == nullptr);
-  CHECK(root.model().size() == 0);
-
-  // And the file too, so it does not come back at the boot after.
-  HAPModel after;
-  CHECK(HAPStore::loadModel(after) == 0);
 }
 
 void testAControllerAdoptedLastStillReportsItsChildren() noexcept {
@@ -899,7 +840,7 @@ void testAControllerAdoptedLastStillReportsItsChildren() noexcept {
 
   // The root knows the grandchild by NAME rather than by inference: its address,
   // its permanent identity, and what it promised.
-  const HAPRemoteNode* known = root.model().find(pathOf(1, 1));
+  const HAPRemoteNode* known = root.model().find(leaf.id());
   REQUIRE(known != nullptr);
   CHECK(known->id == leaf.id());
   CHECK(known->reportIntervalSec == 1);
@@ -931,11 +872,11 @@ void testALinkAtTheCommonAncestor() noexcept {
 
   HAPLinkSpec spec;
   spec.linkId = 0;
-  spec.source.path = pathOf(1);  // The middle node's own child.
+  spec.source.node = leaf.id();  // The middle node's own child.
   spec.source.classId = static_cast<uint8_t>(HAPClassId::Thermometer);
   spec.destination.classId = static_cast<uint8_t>(HAPClassId::Regulator);
 
-  CHECK(root.stack().requestSetLink(pathOf(1), spec));
+  CHECK(root.stack().requestSetLink(middle.id(), spec));
   run(bus, devices, 3, 6);
 
   CHECK(middle.stack().links().size() == 1);
@@ -947,7 +888,7 @@ void testALinkAtTheCommonAncestor() noexcept {
   // A tap, not a diversion: the regulator was fed AND the root saw the reading.
   CHECK(middle.node().instanceAt(0)->input(0).asFloat() == 21.5f);
 
-  const HAPRemoteNode* seenAtRoot = root.model().find(pathOf(1, 1));
+  const HAPRemoteNode* seenAtRoot = root.model().find(leaf.id());
   REQUIRE(seenAtRoot != nullptr);
 
   const HValue* seen =
@@ -1021,7 +962,6 @@ void runStackTests() noexcept {
   testAThreeNodeChain();
   testAMiddleNodeHearsItsChildsNewInterval();
   testAMasterThatMissedTheNoticeLearnsTheIntervalFromADescribe();
-  testAChildForgottenWhileOffLeavesNoOrphan();
   testAControllerAdoptedLastStillReportsItsChildren();
   testALinkAtTheCommonAncestor();
   testASleepingNodeMaySleep();

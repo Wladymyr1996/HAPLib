@@ -381,12 +381,13 @@ void testListLinksPage() noexcept {
   response.pageIndex = 0;
   response.pageCount = 1;
 
-  const uint8_t hop[] = {3};
+  HAPNodeId source;
+  source.bytes[7] = 3;
 
   for (uint8_t i = 0; i < 2; ++i) {
     HAPLinkSpec link;
     link.linkId = i;
-    link.source.path = HAPPath::fromBytes(hop, 1);
+    link.source.node = source;
     link.source.classId = static_cast<uint8_t>(HAPClassId::Thermometer);
     link.source.instanceId = i;
     link.destination.classId = static_cast<uint8_t>(HAPClassId::Regulator);
@@ -403,10 +404,11 @@ void testListLinksPage() noexcept {
   CHECK(parsed.decode(reader));
   CHECK(parsed.links.size() == 2);
   CHECK(parsed.links[1].linkId == 1);
-  CHECK(parsed.links[1].source.path.hop(0) == 3);
+  CHECK(parsed.links[1].source.node == source);
+  CHECK(parsed.links[1].destination.node.isZero());
   CHECK(parsed.links[1].destination.portId == 1);
 
-  // A whole table takes two frames: sixteen records is 304 bytes.
+  // A whole table takes two frames: sixteen records is 368 bytes.
   CHECK(HAP_MAX_LINKS * HAPLinkSpec::kEncodedSize > HAP_MAX_PAYLOAD_SIZE);
 }
 

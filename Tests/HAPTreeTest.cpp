@@ -13,8 +13,8 @@
  * This is the test the whole transport seam exists for. Gateway, controller and
  * thermometer, each with its own router and its own radio on a shared simulated
  * bus - and the questions two boards can never answer: does a report climb two
- * hops with the right source path, does a command descend, does a dead middle
- * node hide its subtree, and does the loop guard hold.
+ * hops with its originator's id intact, does a command reach its target
+ * directly, and does a dead middle node hide the reports of its subtree.
  *
  * The TestNode below is a stand-in for HAPStack (phase 5): a router, a
  * transport, and the twenty lines that connect them. When HAPStack exists these
@@ -76,9 +76,16 @@ class TestNode {
     child.router().setParent(id_, index);
   }
 
-  /** @brief Sends a frame this node is originating. */
+  /**
+   * @brief Sends a frame this node is originating, stamped with its own id.
+   *
+   * A frame for the master climbs through the parent; anything else goes
+   * straight to its target.
+   */
   bool originate(HAPFrame& frame) noexcept {
-    if (frame.isUpstream()) {
+    frame.src = id_;
+
+    if (frame.isForMaster()) {
       if (!router_.hasParent()) {
         return false;
       }
@@ -86,10 +93,14 @@ class TestNode {
       return transmit(router_.parentId(), frame);
     }
 
-    const HAPRoute route = router_.resolveDownstream(frame);
+    const HAPRoute route = router_.resolveDownstream(frame.dst, id_);
     if (route.action == HAPRouteAction::ToChild) {
       const HAPChild* child = router_.child(route.childIndex);
       return child != nullptr && transmit(child->id, frame);
+    }
+
+    if (route.action == HAPRouteAction::ToNode) {
+      return transmit(frame.dst, frame);
     }
 
     return false;
@@ -115,7 +126,7 @@ class TestNode {
       return;
     }
 
-    const HAPRoute route = router_.route(frame, from.nodeId());
+    const HAPRoute route = router_.route(frame, from.nodeId(), id_);
 
     switch (route.action) {
       case HAPRouteAction::Deliver: {
@@ -135,13 +146,11 @@ class TestNode {
         transmit(router_.parentId(), frame);
         break;
 
-      case HAPRouteAction::ToChild: {
-        const HAPChild* child = router_.child(route.childIndex);
-        if (child != nullptr) {
-          transmit(child->id, frame);
-        }
+      case HAPRouteAction::ToChild:
+      case HAPRouteAction::ToNode:
+        // Only an originated frame goes straight to its target; a node that
+        // receives one for somebody else drops it instead.
         break;
-      }
 
       case HAPRouteAction::Drop:
         if (!drops_.full()) {
@@ -204,7 +213,6 @@ void testReportClimbsTwoHops() noexcept {
 
   HAPFrame report;
   report.type = static_cast<uint8_t>(HAPMessage::Report);
-  report.set(HAPFlags::Upstream);
   report.seq = 0x0107;
   report.payload = payload;
   report.payloadSize = static_cast<uint8_t>(payloadSize);
@@ -225,9 +233,14 @@ void testReportClimbsTwoHops() noexcept {
         HAPFrameError::None);
 
   // The whole design in one assertion: nobody was told the shape of the
-  // network, and the gateway knows the reading came from 1.2.
-  CHECK(std::strcmp(arrived.src.toString().c_str(), "1.2") == 0);
+  // network, and the gateway knows who the reading came from because the frame
+  // says so - it was relayed, and the source is the originator's, untouched.
+  CHECK(arrived.src == tree.thermometer.id());
+  CHECK(arrived.isForMaster());
   CHECK(arrived.seq == 0x0107);
+
+  // The last hop it arrived by was the controller.
+  CHECK(record.from == tree.controller.id());
 
   HAPReader reader(arrived.payload, arrived.payloadSize);
   HAPReport parsed;
@@ -236,7 +249,7 @@ void testReportClimbsTwoHops() noexcept {
   CHECK(parsed.entries[0].value.asFloat() == 21.5f);
 }
 
-void testCommandDescendsTwoHops() noexcept {
+void testCommandGoesStraightToItsTarget() noexcept {
   Tree tree;
 
   const HAPWriteRequest request(static_cast<uint8_t>(HAPClassId::Lamp), 0, 0,
@@ -246,28 +259,30 @@ void testCommandDescendsTwoHops() noexcept {
   HAPWriter writer(payload, sizeof(payload));
   request.encode(writer);
 
-  // Addressed 1.4 from the gateway: through the controller, out to the lamp.
-  const uint8_t hops[] = {kControllerIndex, kLampIndex};
-
+  // Addressed to the lamp by id: one hop, and the controller between them is
+  // not involved.
   HAPFrame command;
   command.type = static_cast<uint8_t>(HAPMessage::WriteRequest);
   command.set(HAPFlags::AckRequested);
   command.seq = 0x0020;
-  command.dest = HAPPath::fromBytes(hops, 2);
+  command.dst = tree.lamp.id();
   command.payload = payload;
   command.payloadSize = static_cast<uint8_t>(writer.size());
 
   CHECK(tree.gateway.originate(command));
-  CHECK(tree.bus.pumpAll() == 2);
+  CHECK(tree.bus.pumpAll() == 1);
 
   CHECK(tree.lamp.delivered().size() == 1);
+  CHECK(tree.controller.delivered().empty());  // Delivers nothing...
+  CHECK(tree.controller.transport().receivedCount() == 0);  // ...forwards nothing.
   CHECK(tree.thermometer.delivered().empty());  // The other branch heard nothing.
 
   HAPFrame arrived;
   const ReceivedFrame& record = tree.lamp.delivered()[0];
   CHECK(HAPFrame::decode(record.bytes, record.size, arrived) ==
         HAPFrameError::None);
-  CHECK(arrived.dest.isEmpty());
+  CHECK(arrived.dst == tree.lamp.id());
+  CHECK(arrived.src == tree.gateway.id());
   CHECK(arrived.has(HAPFlags::AckRequested));
 
   HAPReader reader(arrived.payload, arrived.payloadSize);
@@ -289,7 +304,6 @@ void testResponseFindsItsWayBack() noexcept {
 
   HAPFrame reply;
   reply.type = static_cast<uint8_t>(HAPMessage::WriteResponse);
-  reply.set(HAPFlags::Upstream);
   reply.seq = 0x0020;
   reply.payload = payload;
   reply.payloadSize = static_cast<uint8_t>(writer.size());
@@ -302,40 +316,24 @@ void testResponseFindsItsWayBack() noexcept {
   CHECK(HAPFrame::decode(record.bytes, record.size, arrived) ==
         HAPFrameError::None);
 
-  // 1.4 - the same address the command was sent to, drawn by the reply itself.
-  CHECK(std::strcmp(arrived.src.toString().c_str(), "1.4") == 0);
+  // The reply names its originator itself: the lamp, with the request's seq.
+  CHECK(arrived.src == tree.lamp.id());
   CHECK(arrived.seq == 0x0020);
 }
 
-void testADeadNodeHidesItsSubtree() noexcept {
+void testADeadNodeHidesItsSubtreesReports() noexcept {
   Tree tree;
 
-  // The controller loses power. There is no second way in to anything under it.
+  // The controller loses power. Reports climb through it, so there is no second
+  // way up for anything under it.
   tree.bus.setReachable(tree.gateway.id(), tree.controller.id(), false);
   tree.bus.setReachable(tree.controller.id(), tree.thermometer.id(), false);
 
-  const uint8_t hops[] = {kControllerIndex, kThermometerIndex};
-
-  HAPFrame command;
-  command.type = static_cast<uint8_t>(HAPMessage::ReadRequest);
-  command.seq = 0x0030;
-  command.dest = HAPPath::fromBytes(hops, 2);
-
-  // The gateway's radio still reports the frame as sent - a send is not a
-  // delivery, which is exactly why the protocol above needs its own answer.
-  CHECK(tree.gateway.originate(command));
-  CHECK(tree.bus.pumpAll() > 0);
-
-  CHECK(tree.controller.delivered().empty());
-  CHECK(tree.thermometer.delivered().empty());
-
-  // And the thermometer's own reports no longer reach anybody above it.
   uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
   const size_t payloadSize = buildReport(payload, sizeof(payload), 21.5f);
 
   HAPFrame report;
   report.type = static_cast<uint8_t>(HAPMessage::Report);
-  report.set(HAPFlags::Upstream);
   report.payload = payload;
   report.payloadSize = static_cast<uint8_t>(payloadSize);
 
@@ -344,23 +342,44 @@ void testADeadNodeHidesItsSubtree() noexcept {
   CHECK(tree.gateway.delivered().empty());
 }
 
-void testAMissingChildIsDiagnosed() noexcept {
+void testACommandNoLongerNeedsTheMiddleNode() noexcept {
   Tree tree;
 
-  // Child 3 of the controller does not exist. The controller can still answer,
-  // so the gateway learns WHICH hop failed rather than merely that nothing
-  // came back.
-  const uint8_t hops[] = {kControllerIndex, 3};
+  // The same outage, from the other side: a command is sent to its target
+  // directly, so a dead controller does not stand in the way of it.
+  tree.bus.setReachable(tree.gateway.id(), tree.controller.id(), false);
+  tree.bus.setReachable(tree.controller.id(), tree.thermometer.id(), false);
 
   HAPFrame command;
   command.type = static_cast<uint8_t>(HAPMessage::ReadRequest);
-  command.dest = HAPPath::fromBytes(hops, 2);
+  command.seq = 0x0030;
+  command.dst = tree.thermometer.id();
 
   CHECK(tree.gateway.originate(command));
-  CHECK(tree.bus.pumpAll() > 0);
+  CHECK(tree.bus.pumpAll() == 1);
 
-  CHECK(tree.controller.drops().size() == 1);
-  CHECK(tree.controller.drops()[0] == HAPResult::NoSuchChild);
+  CHECK(tree.controller.delivered().empty());
+  CHECK(tree.thermometer.delivered().size() == 1);
+}
+
+void testACommandToAnUnknownIdIsLostSilently() noexcept {
+  Tree tree;
+
+  // Nobody holds this id. The radio took the frame, nothing arrives, and - with
+  // no RouteError any more - nobody says so either.
+  HAPFrame command;
+  command.type = static_cast<uint8_t>(HAPMessage::ReadRequest);
+  command.dst = idFor(0x77);
+
+  CHECK(tree.gateway.originate(command));
+
+  const size_t delivered = tree.bus.deliveredCount();
+  tree.bus.pumpAll();
+
+  CHECK(tree.bus.deliveredCount() == delivered);
+  CHECK(tree.controller.drops().empty());
+  CHECK(tree.gateway.drops().empty());
+  CHECK(tree.gateway.delivered().empty());
 }
 
 void testTheOtherBranchIsUndisturbed() noexcept {
@@ -374,7 +393,6 @@ void testTheOtherBranchIsUndisturbed() noexcept {
 
   HAPFrame report;
   report.type = static_cast<uint8_t>(HAPMessage::Report);
-  report.set(HAPFlags::Upstream);
   report.payload = payload;
   report.payloadSize = static_cast<uint8_t>(payloadSize);
 
@@ -388,9 +406,10 @@ void testAStrangerIsIgnored() noexcept {
   TestNode intruder(9, tree.bus);
 
   // It can transmit - the radio has no opinion - but it is nobody's parent and
-  // nobody's child, so the frame goes no further than the router.
+  // nobody's child, so a frame for the master goes no further than the router.
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(HAPMessage::ReadRequest);
+  frame.src = intruder.id();
 
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size = frame.encode(buffer, sizeof(buffer));
@@ -400,6 +419,17 @@ void testAStrangerIsIgnored() noexcept {
   CHECK(tree.controller.delivered().empty());
   CHECK(tree.controller.drops().size() == 1);
   CHECK(tree.controller.drops()[0] == HAPResult::NotBound);
+
+  // A frame addressed to the controller itself is a different matter: it is
+  // delivered whoever sent it. The boundary is the network key, not the sender.
+  tree.controller.clear();
+  frame.dst = tree.controller.id();
+  const size_t addressed = frame.encode(buffer, sizeof(buffer));
+  CHECK(intruder.transport().send(tree.controller.address(), buffer, addressed));
+
+  CHECK(tree.bus.pumpAll() > 0);
+  CHECK(tree.controller.delivered().size() == 1);
+  CHECK(tree.controller.drops().empty());
 }
 
 void testAUnicastToNobodyIsLostSilently() noexcept {
@@ -409,6 +439,7 @@ void testAUnicastToNobodyIsLostSilently() noexcept {
   // that the radio took the frame. An address nobody holds is not an error, and
   // nothing arrives - so a caller that took `true` for delivery is wrong.
   HAPFrame frame;
+  frame.src = tree.gateway.id();
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size = frame.encode(buffer, sizeof(buffer));
 
@@ -430,6 +461,7 @@ void testMulticastReachesEveryoneAttached() noexcept {
   // How an unbound node is heard at all: nobody has to know it first.
   HAPFrame announce;
   announce.type = static_cast<uint8_t>(HAPMessage::BindAnnounce);
+  announce.src = newcomer.id();
 
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size = announce.encode(buffer, sizeof(buffer));
@@ -445,15 +477,17 @@ void testMulticastReachesEveryoneAttached() noexcept {
   CHECK(tree.gateway.drops()[0] == HAPResult::NotBound);
 }
 
-void testDepthFive() noexcept {
-  // The deepest tree the protocol allows, built as a chain, with a report from
-  // the bottom of it.
+void testAChainHasNoDepthLimit() noexcept {
+  // Six nodes in a chain, more than the old five-hop ceiling allowed, with a
+  // report from the bottom of it.
+  constexpr size_t kNodes = 6;
+
   HAPLoopbackBus bus;
-  TestNode nodes[HAP_MAX_DEPTH + 1] = {
+  TestNode nodes[kNodes] = {
       TestNode(1, bus), TestNode(2, bus), TestNode(3, bus),
       TestNode(4, bus), TestNode(5, bus), TestNode(6, bus)};
 
-  for (size_t i = 0; i + 1 < HAP_MAX_DEPTH + 1; ++i) {
+  for (size_t i = 0; i + 1 < kNodes; ++i) {
     nodes[i].adopt(1, nodes[i + 1]);
   }
 
@@ -462,12 +496,11 @@ void testDepthFive() noexcept {
 
   HAPFrame report;
   report.type = static_cast<uint8_t>(HAPMessage::Report);
-  report.set(HAPFlags::Upstream);
   report.payload = payload;
   report.payloadSize = static_cast<uint8_t>(payloadSize);
 
-  CHECK(nodes[HAP_MAX_DEPTH].originate(report));
-  CHECK(bus.pumpAll() == HAP_MAX_DEPTH);
+  CHECK(nodes[kNodes - 1].originate(report));
+  CHECK(bus.pumpAll() == kNodes - 1);
 
   CHECK(nodes[0].delivered().size() == 1);
 
@@ -476,11 +509,9 @@ void testDepthFive() noexcept {
   CHECK(HAPFrame::decode(record.bytes, record.size, arrived) ==
         HAPFrameError::None);
 
-  // Five hops, and the path is exactly full - one more level and the frame
-  // could not have been addressed at all.
-  CHECK(arrived.src.length() == HAP_MAX_DEPTH);
-  CHECK(arrived.src.isFull());
-  CHECK(std::strcmp(arrived.src.toString().c_str(), "1.1.1.1.1") == 0);
+  // The report reaches the root with the bottom node's id: nothing along the
+  // way added to the frame, so there is no longest path to exceed.
+  CHECK(arrived.src == nodes[kNodes - 1].id());
 }
 
 }  // namespace
@@ -489,13 +520,14 @@ void runTreeTests() noexcept {
   HAPTest::begin("Simulated tree");
 
   testReportClimbsTwoHops();
-  testCommandDescendsTwoHops();
+  testCommandGoesStraightToItsTarget();
   testResponseFindsItsWayBack();
-  testADeadNodeHidesItsSubtree();
-  testAMissingChildIsDiagnosed();
+  testADeadNodeHidesItsSubtreesReports();
+  testACommandNoLongerNeedsTheMiddleNode();
+  testACommandToAnUnknownIdIsLostSilently();
   testTheOtherBranchIsUndisturbed();
   testAStrangerIsIgnored();
   testAUnicastToNobodyIsLostSilently();
   testMulticastReachesEveryoneAttached();
-  testDepthFive();
+  testAChainHasNoDepthLimit();
 }

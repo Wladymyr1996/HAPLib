@@ -32,7 +32,7 @@
  *
  * The one frame that IS routed - `ChildAttached`, telling the root about a new
  * node - is deliberately not sent from here. It has to climb, which needs a
- * parent, a path and a sequence number, none of which are this class's
+ * parent and a sequence number, none of which are this class's
  * business: it fires onChildBound() and whoever owns the stack sends it.
  *
  * ## The window is the exposure

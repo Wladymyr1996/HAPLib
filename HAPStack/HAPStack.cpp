@@ -74,40 +74,8 @@ bool HAPStack::begin() noexcept {
 
         child->id.toMac(restored.mac);
 
-        model_->noteChildAttached(HAPPath(), restored);
+        model_->noteChildAttached(restored);
       }
-    }
-  }
-
-  // The child table is the truth about who is below; the model is a cache of
-  // it. An entry whose first hop is no child of this node any more - one
-  // forgotten while the mesh was not running, from a settings page - is an
-  // orphan: nothing can reach it, and left alone it would be counted, swept
-  // offline and shown for ever. Dropped here, with everything below it.
-  if (model_ != nullptr) {
-    size_t dropped = 0;
-
-    for (bool more = true; more;) {
-      more = false;
-
-      for (size_t i = 0; i < model_->size(); ++i) {
-        const HAPRemoteNode* node = model_->at(i);
-
-        if (node != nullptr && node->path.length() > 0 &&
-            router_.child(node->path.first()) == nullptr) {
-          const HAPPath orphan = node->path;
-          model_->forget(orphan);
-          ++dropped;
-          more = true;
-          break;
-        }
-      }
-    }
-
-    if (dropped > 0) {
-      HInfo("%u nodes below children this node no longer has - forgotten",
-            static_cast<unsigned>(dropped));
-      HAPStore::saveModel(*model_);
     }
   }
 
@@ -175,8 +143,9 @@ void HAPStack::adoptPolicy(const HAPFrame& frame) noexcept {
   // Our own child's entry too, and it has to be kept: begin() re-seeds the
   // model from the child table after every reboot, so a stale entry there
   // would quietly put the old interval back.
-  if (accepted && frame.src.length() == 1 &&
-      router_.setChildReportInterval(frame.src.first(), response.intervalSec)) {
+  const HAPChild* ownChild = router_.childById(frame.src);
+  if (accepted && ownChild != nullptr &&
+      router_.setChildReportInterval(ownChild->index, response.intervalSec)) {
     HAPStore::saveChildren(router_);
   }
 
@@ -200,7 +169,7 @@ void HAPStack::adoptPolicy(const HAPFrame& frame) noexcept {
   }
 }
 
-void HAPStack::adoptDescribe(const HAPPath& from,
+void HAPStack::adoptDescribe(const HAPNodeId& from,
                              const HAPDescribeResponse& response) noexcept {
   const HAPRemoteNode* known = model_ != nullptr ? model_->find(from) : nullptr;
   const bool modelMoved = response.hasInterval && known != nullptr &&
@@ -208,9 +177,10 @@ void HAPStack::adoptDescribe(const HAPPath& from,
 
   // Our own child's entry is kept for the same reason as in adoptPolicy():
   // begin() re-seeds the model from it after every reboot.
+  const HAPChild* ownChild = router_.childById(from);
   const bool childMoved =
-      response.hasInterval && from.length() == 1 &&
-      router_.setChildReportInterval(from.first(), response.reportIntervalSec);
+      response.hasInterval && ownChild != nullptr &&
+      router_.setChildReportInterval(ownChild->index, response.reportIntervalSec);
 
   if (childMoved) {
     HAPStore::saveChildren(router_);
@@ -267,10 +237,12 @@ void HAPStack::onFrame(const HAPAddress& from, const uint8_t* data,
     return;
   }
 
-  // Frames carry no node id yet, so the sender is who the address says it is.
+  // The address says who sent it THIS HOP; frame.src says who it began with. A
+  // frame climbing the tree is relayed, so the two differ - the router decides
+  // on the first and everything else (model, links, hooks) on the second.
   const HAPNodeId origin = from.nodeId();
   const HAPChild* sender = router_.childById(origin);
-  const HAPRoute route = router_.route(frame, origin);
+  const HAPRoute route = router_.route(frame, origin, transport_.localId());
 
   switch (route.action) {
     case HAPRouteAction::Deliver:
@@ -279,8 +251,7 @@ void HAPStack::onFrame(const HAPAddress& from, const uint8_t* data,
 
     case HAPRouteAction::ToParent: {
       // A report passing through feeds anything wired to it - and carries on.
-      // The source path has already been prepended, so it is the downward path
-      // from here, which is what a link stores.
+      // Its source is the originator's id, which is what a link stores.
       if (frame.message() == HAPMessage::Report) {
         HAPReader reader(frame.payload, frame.payloadSize);
         HAPReport report;
@@ -324,20 +295,14 @@ void HAPStack::onFrame(const HAPAddress& from, const uint8_t* data,
     }
 
     case HAPRouteAction::ToChild:
-      forwardToChild(frame, route.childIndex);
+    case HAPRouteAction::ToNode:
+      // Only a frame this node ORIGINATES goes straight to its target; route()
+      // never decides it for one that arrived.
       break;
 
     case HAPRouteAction::Drop:
-      if (route.reason == HAPResult::NoSuchChild ||
-          route.reason == HAPResult::ChildUnreachable) {
-        // A diagnosis rather than a timeout: the far end learns WHICH hop
-        // failed, which is the difference between a fault and a mystery.
-        sendRouteError(frame, route.childIndex, route.reason);
-      } else {
-        HWarning("dropped %s from %s: %s",
-                 frame.src.toString().c_str(), from.toString().c_str(),
-                 HAPResultToString(route.reason));
-      }
+      HWarning("dropped %s from %s: %s", frame.src.toString().c_str(),
+               from.toString().c_str(), HAPResultToString(route.reason));
       break;
   }
 
@@ -430,7 +395,7 @@ void HAPStack::handleUpstreamNews(const HAPFrame& frame) noexcept {
     case HAPMessage::ChildAttached: {
       HAPChildAttached attached;
       if (attached.decode(reader) && model_ != nullptr) {
-        model_->noteChildAttached(frame.src, attached);
+        model_->noteChildAttached(attached);
 
         // Identity changed - a node appeared, or one moved. This is the only
         // message that can say so, and it is never repeated.
@@ -639,9 +604,9 @@ bool HAPStack::transmit(const HAPNodeId& to, const HAPFrame& frame) noexcept {
 
   ++sent_;
 
-  // Only upward traffic opens a window. A master sending to a child is not
-  // waiting on the radio; a slave that just spoke is.
-  if (frame.isUpstream()) {
+  // Only traffic for the master opens a window. A master sending to a child is
+  // not waiting on the radio; a slave that just spoke is.
+  if (frame.isForMaster()) {
     window_.open();
   }
 
@@ -678,7 +643,7 @@ bool HAPStack::forwardToChild(HAPFrame& frame, uint8_t childIndex) noexcept {
     nack.reason = HAPResult::Busy;
     nack.encode(writer);
 
-    sendUpstream(HAPMessage::Nack, HAPFlags::Upstream, payload, writer.size());
+    sendUpstream(HAPMessage::Nack, HAPFlags::None, payload, writer.size());
     return false;
   }
 
@@ -716,28 +681,28 @@ bool HAPStack::sendUpstream(HAPMessage type, uint8_t flags,
 
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(type);
-  frame.flags = static_cast<uint8_t>(flags | HAPFlags::Upstream);
+  frame.flags = flags;
   frame.seq = ++seq_;
+  frame.src = transport_.localId();
   frame.payload = payload;
   frame.payloadSize = static_cast<uint8_t>(size);
 
   return transmit(router_.parentId(), frame);
 }
 
-bool HAPStack::sendDownstream(const HAPPath& path, HAPMessage type,
+bool HAPStack::sendDownstream(const HAPNodeId& node, HAPMessage type,
                               uint8_t flags, const uint8_t* payload, size_t size,
                               uint16_t seq) noexcept {
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(type);
   frame.flags = flags;
   frame.seq = seq != 0 ? seq : ++seq_;
-  frame.dest = path;
+  frame.dst = node;
+  frame.src = transport_.localId();
   frame.payload = payload;
   frame.payloadSize = static_cast<uint8_t>(size);
 
-  // The first hop is resolved here, so this node's own frames take the same
-  // path through the same code as anything it forwards.
-  const HAPRoute route = router_.resolveDownstream(frame);
+  const HAPRoute route = router_.resolveDownstream(node, frame.src);
 
   switch (route.action) {
     case HAPRouteAction::Deliver:
@@ -747,8 +712,11 @@ bool HAPStack::sendDownstream(const HAPPath& path, HAPMessage type,
     case HAPRouteAction::ToChild:
       return forwardToChild(frame, route.childIndex);
 
+    case HAPRouteAction::ToNode:
+      return transmit(node, frame);
+
     default:
-      HWarning("cannot reach %s: %s", path.toString().c_str(),
+      HWarning("cannot reach %s: %s", node.toString().c_str(),
                HAPResultToString(route.reason));
       return false;
   }
@@ -761,8 +729,9 @@ bool HAPStack::respond(const HAPFrame& to, HAPMessage type,
   // WriteRequest asked for.
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(type);
-  frame.flags = HAPFlags::Upstream;
+  frame.flags = HAPFlags::None;
   frame.seq = to.seq;
+  frame.src = transport_.localId();
   frame.payload = payload;
   frame.payloadSize = static_cast<uint8_t>(size);
 
@@ -800,7 +769,7 @@ bool HAPStack::sendReport() noexcept {
 
   // Its own values feed its own wires first - the case that never touches the
   // radio at all.
-  links_.deliver(HAPPath(), report);
+  links_.deliver(HAPNodeId::zero(), report);
 
   uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
   HAPWriter writer(payload, sizeof(payload));
@@ -845,11 +814,11 @@ bool HAPStack::announceReportInterval() noexcept {
                       writer.size());
 }
 
-bool HAPStack::ping(const HAPPath& path) noexcept {
-  return sendDownstream(path, HAPMessage::Ping, HAPFlags::None, nullptr, 0);
+bool HAPStack::ping(const HAPNodeId& node) noexcept {
+  return sendDownstream(node, HAPMessage::Ping, HAPFlags::None, nullptr, 0);
 }
 
-bool HAPStack::requestDescribe(const HAPPath& path, uint8_t fromPage) noexcept {
+bool HAPStack::requestDescribe(const HAPNodeId& node, uint8_t fromPage) noexcept {
   uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
   HAPWriter writer(payload, sizeof(payload));
 
@@ -857,57 +826,57 @@ bool HAPStack::requestDescribe(const HAPPath& path, uint8_t fromPage) noexcept {
   request.fromPage = fromPage;
   request.encode(writer);
 
-  return sendDownstream(path, HAPMessage::DescribeRequest, HAPFlags::None,
+  return sendDownstream(node, HAPMessage::DescribeRequest, HAPFlags::None,
                         payload, writer.size());
 }
 
-bool HAPStack::requestRead(const HAPPath& path,
+bool HAPStack::requestRead(const HAPNodeId& node,
                            const HAPReadRequest& request) noexcept {
   uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
   HAPWriter writer(payload, sizeof(payload));
   request.encode(writer);
 
-  return sendDownstream(path, HAPMessage::ReadRequest, HAPFlags::None, payload,
+  return sendDownstream(node, HAPMessage::ReadRequest, HAPFlags::None, payload,
                         writer.size());
 }
 
-bool HAPStack::requestWrite(const HAPPath& path,
+bool HAPStack::requestWrite(const HAPNodeId& node,
                             const HAPWriteRequest& request) noexcept {
   uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
   HAPWriter writer(payload, sizeof(payload));
   request.encode(writer);
 
-  return sendDownstream(path, HAPMessage::WriteRequest, HAPFlags::AckRequested,
+  return sendDownstream(node, HAPMessage::WriteRequest, HAPFlags::AckRequested,
                         payload, writer.size());
 }
 
-bool HAPStack::requestSetPolicy(const HAPPath& path,
+bool HAPStack::requestSetPolicy(const HAPNodeId& node,
                                 const HAPSetPolicyRequest& request) noexcept {
   uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
   HAPWriter writer(payload, sizeof(payload));
   request.encode(writer);
 
-  return sendDownstream(path, HAPMessage::SetPolicyRequest,
+  return sendDownstream(node, HAPMessage::SetPolicyRequest,
                         HAPFlags::AckRequested, payload, writer.size());
 }
 
-bool HAPStack::requestSetName(const HAPPath& path,
+bool HAPStack::requestSetName(const HAPNodeId& node,
                               const HAPSetNameRequest& request) noexcept {
   uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
   HAPWriter writer(payload, sizeof(payload));
   request.encode(writer);
 
-  return sendDownstream(path, HAPMessage::SetNameRequest, HAPFlags::AckRequested,
+  return sendDownstream(node, HAPMessage::SetNameRequest, HAPFlags::AckRequested,
                         payload, writer.size());
 }
 
-bool HAPStack::requestSetLink(const HAPPath& path,
+bool HAPStack::requestSetLink(const HAPNodeId& node,
                               const HAPLinkSpec& spec) noexcept {
   uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
   HAPWriter writer(payload, sizeof(payload));
   spec.encode(writer);
 
-  return sendDownstream(path, HAPMessage::SetLinkRequest, HAPFlags::AckRequested,
+  return sendDownstream(node, HAPMessage::SetLinkRequest, HAPFlags::AckRequested,
                         payload, writer.size());
 }
 
@@ -967,7 +936,7 @@ bool HAPStack::announceChild(const HAPChild& child) noexcept {
   if (model_ != nullptr) {
     // This node IS the root, so the notice has nowhere to climb to - it is
     // already where it was going.
-    model_->noteChildAttached(HAPPath(), attached);
+    model_->noteChildAttached(attached);
     rememberModel();
     return true;
   }
@@ -1064,7 +1033,7 @@ bool HAPStack::factoryReset() noexcept {
 
 void HAPStack::deliverLink(const HAPPortRef& destination,
                            const HValue& value) noexcept {
-  if (destination.path.isEmpty()) {
+  if (destination.node.isZero()) {
     // The case worth having: no radio, no latency, and it keeps working with
     // everything above this node unplugged.
     HAPInstance* instance =
@@ -1087,7 +1056,7 @@ void HAPStack::deliverLink(const HAPPortRef& destination,
   // No acknowledgement asked for: confirming every reading would double the
   // traffic to prove something the destination's staleness timer measures
   // better.
-  sendDownstream(destination.path, HAPMessage::WriteRequest, HAPFlags::None,
+  sendDownstream(destination.node, HAPMessage::WriteRequest, HAPFlags::None,
                  payload, writer.size());
 }
 

@@ -366,7 +366,7 @@ void testACommandToAnUnknownIdIsLostSilently() noexcept {
   Tree tree;
 
   // Nobody holds this id. The radio took the frame, nothing arrives, and - with
-  // no RouteError any more - nobody says so either.
+  // no failure report any more - nobody says so either.
   HAPFrame command;
   command.type = static_cast<uint8_t>(HAPMessage::ReadRequest);
   command.dst = idFor(0x77);

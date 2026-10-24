@@ -39,15 +39,3 @@ bool HAPNack::decode(HAPReader& reader) noexcept {
   return reader.ok();
 }
 
-void HAPRouteError::encode(HAPWriter& writer) const noexcept {
-  writer.u16(seq);
-  writer.u8(failedHop);
-  writer.u8(static_cast<uint8_t>(reason));
-}
-
-bool HAPRouteError::decode(HAPReader& reader) noexcept {
-  seq = reader.u16();
-  failedHop = reader.u8();
-  reason = static_cast<HAPResult>(reader.u8());
-  return reader.ok();
-}

@@ -325,7 +325,6 @@ void HAPStack::deliverLocally(const HAPFrame& frame) noexcept {
     case HAPMessage::DescribeResponse:
     case HAPMessage::Pong:
     case HAPMessage::ChildAttached:
-    case HAPMessage::RouteError:
     case HAPMessage::Nack:
     case HAPMessage::WriteResponse:
     case HAPMessage::SetNameResponse:
@@ -415,15 +414,6 @@ void HAPStack::handleUpstreamNews(const HAPFrame& frame) noexcept {
       if (response.decode(reader)) {
         HInfo("%s runs firmware %s: %s", frame.src.toString().c_str(),
               response.version.c_str(), HAPResultToString(response.result));
-      }
-      break;
-    }
-
-    case HAPMessage::RouteError: {
-      HAPRouteError routeError;
-      if (routeError.decode(reader)) {
-        HWarning("%s could not reach hop %u: %s", frame.src.toString().c_str(),
-                 routeError.failedHop, HAPResultToString(routeError.reason));
       }
       break;
     }
@@ -740,23 +730,6 @@ bool HAPStack::respond(const HAPFrame& to, HAPMessage type,
   }
 
   return transmit(router_.parentId(), frame);
-}
-
-void HAPStack::sendRouteError(const HAPFrame& frame, uint8_t failedHop,
-                              HAPResult reason) noexcept {
-  uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
-  HAPWriter writer(payload, sizeof(payload));
-
-  HAPRouteError routeError;
-  routeError.seq = frame.seq;
-  routeError.failedHop = failedHop;
-  routeError.reason = reason;
-  routeError.encode(writer);
-
-  HWarning("cannot forward seq %u to hop %u: %s", frame.seq, failedHop,
-           HAPResultToString(reason));
-
-  sendUpstream(HAPMessage::RouteError, HAPFlags::None, payload, writer.size());
 }
 
 // ---------------------------------------------------------------------------

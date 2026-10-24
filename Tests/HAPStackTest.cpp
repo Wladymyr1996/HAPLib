@@ -667,7 +667,7 @@ void testAThreeNodeChain() noexcept {
   CHECK(reading->asFloat() == 21.5f);
 
   // B4: a command for an id nobody holds goes out and is lost. There is no
-  // RouteError to say why, and nothing is modelled for it.
+  // failure report to say why, and nothing is modelled for it.
   HAPReadRequest read;
   CHECK(root.stack().requestRead(idFor(0x77), read));
   run(bus, devices, 3, 6);

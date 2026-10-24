@@ -299,7 +299,7 @@ enum class HAPMessage : uint8_t {
 
   Ack = 0x30,
   Nack = 0x31,
-  RouteError = 0x40,
+  // 0x40 is unassigned: it was a forwarding failure report, and nothing forwards downward any more.
 
   SetLinkRequest = 0x50,
   SetLinkResponse = 0x51,

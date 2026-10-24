@@ -261,9 +261,6 @@ class HAPStack {
                size_t size) noexcept;
   bool transmit(const HAPNodeId& to, const HAPFrame& frame) noexcept;
 
-  void sendRouteError(const HAPFrame& frame, uint8_t failedHop,
-                      HAPResult reason) noexcept;
-
   void childBound(const HAPChild& child) noexcept;
 
   /**

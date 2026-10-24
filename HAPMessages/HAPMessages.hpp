@@ -13,7 +13,7 @@
  * | ------ | ------ |
  * | HAPBindMessages | BindAnnounce, BindAccept, BindConfirm, ChildAttached |
  * | HAPDataMessages | Describe, Report, Read, Write, SetPolicy, SetName |
- * | HAPControlMessages | Ping, Pong, Ack, Nack, RouteError |
+ * | HAPControlMessages | Ping, Pong, Ack, Nack |
  * | HAPLinkMessages | SetLink, ClearLink, ListLinks |
  * | HAPServiceMessages | Ota - messages about the node as a device |
  *

@@ -53,22 +53,3 @@ struct HAPNack {
   bool decode(HAPReader& reader) noexcept;
 };
 
-/**
- * @brief "I could not pass this on, and here is which hop failed."
- *
- * The difference between a timeout and a diagnosis: a master learns WHICH link
- * in the chain is down rather than only that something did not come back. Sent
- * toward the originator, whose route is the failed frame's own source path.
- */
-struct HAPRouteError {
-  /** Of the frame that could not be forwarded. */
-  uint16_t seq = 0;
-
-  /** The child index that could not be reached, relative to the sender. */
-  uint8_t failedHop = 0;
-
-  HAPResult reason = HAPResult::ChildUnreachable;
-
-  void encode(HAPWriter& writer) const noexcept;
-  bool decode(HAPReader& reader) noexcept;
-};

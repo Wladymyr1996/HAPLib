@@ -334,20 +334,11 @@ void testControlMessages() noexcept {
   size = encodeInto(nack, buffer, sizeof(buffer));
   CHECK_BYTES(buffer, size, "0701 08");
 
-  // The difference between a timeout and a diagnosis: which hop failed.
-  HAPRouteError error;
-  error.seq = 0x0020;
-  error.failedHop = 4;
-  error.reason = HAPResult::ChildUnreachable;
-  size = encodeInto(error, buffer, sizeof(buffer));
-  CHECK_BYTES(buffer, size, "2000 04 02");
-
   HAPReader reader(buffer, size);
-  HAPRouteError parsed;
+  HAPNack parsed;
   CHECK(parsed.decode(reader));
-  CHECK(parsed.failedHop == 4);
-  CHECK(parsed.reason == HAPResult::ChildUnreachable);
-  CHECK(std::strcmp(HAPResultToString(parsed.reason), "child unreachable") == 0);
+  CHECK(parsed.seq == 0x0107);
+  CHECK(parsed.reason == HAPResult::Busy);
 }
 
 // -------------------------------------------------------------------------
@@ -444,11 +435,6 @@ void testEveryMessageRefusesATruncatedPayload() noexcept {
   {
     HAPReader reader(stub, sizeof(stub));
     HAPSetNameResponse message;
-    CHECK(!message.decode(reader));
-  }
-  {
-    HAPReader reader(stub, sizeof(stub));
-    HAPRouteError message;
     CHECK(!message.decode(reader));
   }
   {

@@ -49,7 +49,7 @@ struct HAPFrame {
   /** HAPFlags bits. */
   uint8_t flags;
 
-  /** Unique per originator for a few seconds; echoed by Ack, Nack and RouteError. */
+  /** Unique per originator for a few seconds; echoed by Ack and Nack. */
   uint16_t seq;
 
   /** Where it is going. All zeroes means the master, whoever it is. */

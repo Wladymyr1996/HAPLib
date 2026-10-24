@@ -203,7 +203,7 @@ bool HAPBinder::handleConfirm(const HAPAddress& from,
   std::memcpy(child.linkKey, linkKey_, HAP_KEY_LEN);
 
   // The old entry for a device that is coming back goes NOW, and not a moment
-  // earlier - see handleAnnounce(). addChild() refuses a MAC it already holds,
+  // earlier - see handleAnnounce(). addChild() refuses an id it already holds,
   // so without this a re-adoption would fail at the last step and take the
   // working child with it.
   const HAPChild* stale = router_.childById(child.id);

@@ -56,7 +56,7 @@ bool HAPStack::begin(uint8_t channel) noexcept {
   // What this node was TOLD about the tree below it, before it restarted.
   // Restored before the children below, so that seeding them refreshes entries
   // rather than creating rival ones - and so that a device which moved while
-  // this node was off is recognised by its MAC rather than appearing twice.
+  // this node was off is recognised by its id rather than appearing twice.
   if (model_ != nullptr) {
     HAPStore::loadModel(*model_);
   }
@@ -84,7 +84,7 @@ bool HAPStack::begin(uint8_t channel) noexcept {
 
       // And the model is told what this node already knows about that child.
       //
-      // A REPORT CARRIES NO MAC, NO CAPABILITIES AND NO INTERVAL - only
+      // A REPORT CARRIES NO ID, NO CAPABILITIES AND NO INTERVAL - only
       // ChildAttached does, and that happened before the reboot. So a master
       // that came back and waited to be told would build a model entry out of a
       // report alone: a zero address, no capabilities, and an interval of zero.
@@ -1062,7 +1062,7 @@ void HAPStack::bound(const HAPAddress& parent, uint8_t index,
   // adopted downward before it was adopted upward is not a strange order to do
   // things in; it is what happens whenever somebody sets up the bottom of a tree
   // first. The root would then never learn those grandchildren existed, and
-  // would build model entries for them out of reports alone: no MAC, so a device
+  // would build model entries for them out of reports alone: no id, so a device
   // that moved could not be recognised, and no interval, so it could never be
   // called offline either. An entry that cannot be identified and cannot expire.
   //

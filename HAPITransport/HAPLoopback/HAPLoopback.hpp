@@ -115,8 +115,10 @@ class HAPLoopbackBus {
 class HAPLoopback : public HAPITransport {
  public:
   /**
-   * @param id This node's identity; must be unique on the bus. The bus is
-   *        MAC-addressed, so the address it is reached at is derived from it.
+   * @param id This node's identity; must be unique on the bus, and must come
+   *        from HAPNodeId::fromMac(). The bus is MAC-addressed, so the address
+   *        it is reached at is derived from the id, and only an id built that
+   *        way survives the round trip (localAddress().nodeId() == id).
    * @param bus Not owned, and must outlive this.
    */
   HAPLoopback(const HAPNodeId& id, HAPLoopbackBus& bus) noexcept;

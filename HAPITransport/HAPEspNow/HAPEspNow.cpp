@@ -206,7 +206,7 @@ bool HAPEspNow::setPrimaryKey(const uint8_t* pmk) noexcept {
 bool HAPEspNow::addEspNowPeer(const HAPAddress& address,
                               const uint8_t* key) noexcept {
   esp_now_peer_info_t peer = {};
-  address.toMac(peer.peer_addr);
+  std::memcpy(peer.peer_addr, address.bytes, HAP_MAC_LEN);
 
   // Zero means "whatever channel the radio is on", which is what keeps a peer
   // table valid across a channel change.

@@ -30,9 +30,6 @@ bool HAPStack::begin() noexcept {
 
   transport_.onReceive(
       HAPITransport::Receiver::create<HAPStack, &HAPStack::onFrame>(*this));
-  transport_.onSendResult(
-      HAPITransport::SendResult::create<HAPStack, &HAPStack::onSendResult>(
-          *this));
 
   binder_.onChildBound(
       HAPBinder::ChildBoundHook::create<HAPStack, &HAPStack::childBound>(*this));
@@ -349,10 +346,6 @@ void HAPStack::onFrame(const HAPAddress& from, const uint8_t* data,
   if (sender != nullptr && sender->isBatteryPowered()) {
     flushQueue(sender->index);
   }
-}
-
-void HAPStack::onSendResult(const HAPAddress& to, bool delivered) noexcept {
-  binder_.notifySent(to, delivered);
 }
 
 // ---------------------------------------------------------------------------

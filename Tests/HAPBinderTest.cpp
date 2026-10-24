@@ -41,13 +41,6 @@ class BindableNode {
                                                         &BindableNode::onFrame>(
         *this));
 
-    // The owner dispatches send results, exactly as it dispatches frames. The
-    // binder needs them for one instant - the moment a link's key changes - and
-    // subscribing directly would mean fighting the stack for one callback slot.
-    transport_.onSendResult(
-        HAPITransport::SendResult::create<BindableNode, &BindableNode::onSent>(
-            *this));
-
     binder_.onChildBound(
         HAPBinder::ChildBoundHook::create<BindableNode,
                                           &BindableNode::childBound>(*this));
@@ -88,10 +81,6 @@ class BindableNode {
     }
 
     ++unhandled_;
-  }
-
-  void onSent(const HAPAddress& to, bool delivered) noexcept {
-    binder_.notifySent(to, delivered);
   }
 
   void childBound(const HAPChild& child) noexcept {

@@ -104,7 +104,6 @@ bool HAPBinder::handleAnnounce(const HAPAddress& from,
   pendingCapabilities_ = announce.capabilities;
   pendingRev_ = announce.descriptorRev;
   pendingInterval_ = announce.reportIntervalSec;
-  keySwitched_ = false;
 
   state_ = State::Accepting;
   confirm_.start(HAP_CONFIRM_TIMEOUT_MS);
@@ -198,38 +197,12 @@ bool HAPBinder::handleConfirm(const HAPAddress& from,
   return true;
 }
 
-void HAPBinder::switchToEncrypted() noexcept {
-  if (keySwitched_ || pending_.isZero()) {
-    return;
-  }
-
-  keySwitched_ = true;
-}
-
-void HAPBinder::notifySent(const HAPAddress& to, bool delivered) noexcept {
-  if (state_ != State::Accepting || to != pending_) {
-    return;
-  }
-
-  if (!delivered) {
-    // Nobody acknowledged the acceptance. Switching the key now would only make
-    // the retry unreadable too; let the confirmation timeout take it.
-    HWarning("acceptance to %s was not acknowledged", to.toString().c_str());
-    return;
-  }
-
-  // The exact moment: the accept is on the air, in the clear, and everything
-  // after it can be encrypted.
-  switchToEncrypted();
-}
-
 void HAPBinder::abandonAccept() noexcept {
   if (!pending_.isZero()) {
     pending_ = HAPAddress::zero();
   }
 
   pendingIndex_ = 0;
-  keySwitched_ = false;
   confirm_.stop();
 }
 
@@ -395,14 +368,6 @@ void HAPBinder::update() noexcept {
       break;
 
     case State::Accepting:
-      // The fallback: a transport that never reports a send would otherwise
-      // leave this link unencrypted forever, and the confirmation would be
-      // dropped by the radio before any of this code saw it.
-      if (!keySwitched_ && confirm_.elapsedMs() >= HAP_KEY_SWITCH_TIMEOUT_MS) {
-        HWarning("no send report for the acceptance; switching key on timeout");
-        switchToEncrypted();
-      }
-
       if (confirm_.isExpired()) {
         HWarning("%s never confirmed", pending_.toString().c_str());
         abandonAccept();

@@ -19,25 +19,6 @@
 #endif
 
 /**
- * How long a master will wait for its BindAccept to be reported as sent before
- * switching the link to encrypted anyway.
- *
- * A **fallback**, not the mechanism. The accept must go out in the CLEAR - it
- * carries the key the other end does not have yet - and everything after it is
- * encrypted, so the link changes key part-way through a conversation. Switching
- * too early can encrypt the accept itself; switching too late means the
- * confirmation arrives encrypted at a peer that is still expecting plain text,
- * and is dropped by the radio before any of this code sees it.
- *
- * The right moment is the instant the accept has actually left, which the
- * transport reports through HAPITransport::SendResult - see notifySent(). This
- * timeout only covers a transport that never reports one.
- */
-#ifndef HAP_KEY_SWITCH_TIMEOUT_MS
-#define HAP_KEY_SWITCH_TIMEOUT_MS 200
-#endif
-
-/**
  * @brief Both halves of the bind handshake. Docs/Protocol.md section 6.
  *
  * A press on each device, and nothing happens without both. This class is the
@@ -110,21 +91,6 @@ class HAPBinder {
    */
   bool handle(const HAPAddress& from, const HAPFrame& frame) noexcept;
 
-  /**
-   * @brief Tells the handshake that a frame has left the radio.
-   *
-   * Wire the transport's SendResult here. It matters for exactly one instant:
-   * a master's BindAccept goes out unencrypted, and the link must become
-   * encrypted the moment it has - too early and the accept itself is encrypted,
-   * too late and the confirmation is dropped by the radio for being encrypted
-   * when the peer is not.
-   *
-   * Dispatched by the owner rather than subscribed to directly, so the binder
-   * and everything else that wants send results are not fighting over one
-   * callback slot.
-   */
-  void notifySent(const HAPAddress& to, bool delivered) noexcept;
-
   State state() const noexcept;
   bool isListening() const noexcept;
   bool isAnnouncing() const noexcept;
@@ -166,7 +132,6 @@ class HAPBinder {
                 const uint8_t* payload, size_t size) noexcept;
 
   void abandonAccept() noexcept;
-  void switchToEncrypted() noexcept;
 
   HAPITransport& transport_;
   HAPRouter& router_;
@@ -176,7 +141,7 @@ class HAPBinder {
 
   HTimer window_;    ///< The master's 60 s, or the slave's.
   HTimer announce_;  ///< Between announcements.
-  HTimer confirm_;   ///< Waiting for a confirmation, or for the key switch.
+  HTimer confirm_;   ///< Waiting for a confirmation.
 
   /** Master: who was accepted, and as which child, until they confirm. */
   HAPAddress pending_;
@@ -185,7 +150,6 @@ class HAPBinder {
   HAPDeviceType pendingType_ = HAPDeviceType::Sensor;
   uint16_t pendingRev_ = 0;
   uint16_t pendingInterval_ = 0;
-  bool keySwitched_ = false;
 
   uint8_t linkKey_[HAP_KEY_LEN] = {};
 

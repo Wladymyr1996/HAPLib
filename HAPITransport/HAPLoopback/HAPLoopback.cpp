@@ -77,22 +77,15 @@ void HAPLoopbackBus::dropNext(size_t count) noexcept {
 }
 
 void HAPLoopbackBus::deliver(const Packet& packet) noexcept {
-  HAPLoopback* sender = find(packet.from);
-
   if (dropCountdown_ > 0) {
     --dropCountdown_;
     ++dropped_;
 
-    // The radio still transmitted it. A frame lost in the air is exactly the
-    // case where a send reports success and nothing arrives, which is what the
-    // protocol above has to be built to survive.
-    if (sender != nullptr) {
-      sender->sent(packet.to, packet.to.isBroadcast());
-    }
+    // A frame lost in the air is exactly the case where a send reports success
+    // and nothing arrives, which is what the protocol above has to be built to
+    // survive.
     return;
   }
-
-  size_t received = 0;
 
   for (HAPLoopback* node : nodes_) {
     if (node->localAddress() == packet.from) {
@@ -112,15 +105,7 @@ void HAPLoopbackBus::deliver(const Packet& packet) noexcept {
     }
 
     node->receive(packet);
-    ++received;
     ++delivered_;
-  }
-
-  // Fired AFTER the frame is on the air but modelled as the radio's own
-  // notification: a broadcast is never acknowledged by anyone, and a unicast
-  // counts as delivered when somebody took it.
-  if (sender != nullptr) {
-    sender->sent(packet.to, packet.to.isBroadcast() || received > 0);
   }
 }
 
@@ -236,16 +221,6 @@ bool HAPLoopback::broadcast(const uint8_t* data, size_t size) {
 
 void HAPLoopback::onReceive(Receiver receiver) {
   receiver_ = receiver;
-}
-
-void HAPLoopback::onSendResult(SendResult result) {
-  sendResult_ = result;
-}
-
-void HAPLoopback::sent(const HAPAddress& to, bool delivered) noexcept {
-  if (sendResult_.is_valid()) {
-    sendResult_(to, delivered);
-  }
 }
 
 void HAPLoopback::receive(const HAPLoopbackBus::Packet& packet) noexcept {

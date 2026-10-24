@@ -234,7 +234,6 @@ class HAPStack {
 
  private:
   void onFrame(const HAPAddress& from, const uint8_t* data, size_t size) noexcept;
-  void onSendResult(const HAPAddress& to, bool delivered) noexcept;
 
   void deliverLocally(const HAPFrame& frame) noexcept;
   void handleRequest(const HAPFrame& frame) noexcept;

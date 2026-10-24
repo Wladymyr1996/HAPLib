@@ -42,17 +42,6 @@ class HAPITransport {
   using Receiver = etl::delegate<void(const HAPAddress& from,
                                       const uint8_t* data, size_t size)>;
 
-  /**
-   * @brief Called when a frame has actually left the radio.
-   *
-   * NOT delivery - it says the frame was transmitted and, for a unicast,
-   * whether the link layer saw an acknowledgement. Two things need it: retrying
-   * a hop, and the one moment in the bind handshake where a link's encryption
-   * changes part-way through a conversation. Guessing at that moment with a
-   * timer is a race; this is the event it should hang off.
-   */
-  using SendResult = etl::delegate<void(const HAPAddress& to, bool delivered)>;
-
   virtual ~HAPITransport();
 
   /** @brief Brings the radio up. */
@@ -75,7 +64,4 @@ class HAPITransport {
 
   /** @brief Installs the receiver. One at a time; the last wins. */
   virtual void onReceive(Receiver receiver) = 0;
-
-  /** @brief Installs the send-result callback. One at a time; the last wins. */
-  virtual void onSendResult(SendResult result) = 0;
 };

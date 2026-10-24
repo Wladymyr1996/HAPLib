@@ -126,7 +126,6 @@ class HAPLoopback : public HAPITransport {
   bool send(const HAPAddress& to, const uint8_t* data, size_t size) override;
   bool broadcast(const uint8_t* data, size_t size) override;
   void onReceive(Receiver receiver) override;
-  void onSendResult(SendResult result) override;
 
   /** @brief Frames this node has handed to the bus, and taken off it. */
   size_t sentCount() const noexcept;
@@ -138,14 +137,10 @@ class HAPLoopback : public HAPITransport {
   /** Called by the bus when a frame reaches this node. */
   void receive(const HAPLoopbackBus::Packet& packet) noexcept;
 
-  /** Called by the bus when a frame this node sent has gone out. */
-  void sent(const HAPAddress& to, bool delivered) noexcept;
-
   HAPNodeId id_;
   HAPAddress address_;
   HAPLoopbackBus& bus_;
   Receiver receiver_;
-  SendResult sendResult_;
   bool started_ = false;
 
   size_t sent_ = 0;

@@ -13,9 +13,9 @@
  * something no device does.
  *
  * The reason is that a handshake is full of "and then wait": between
- * announcements, and for a confirmation that never comes. At the real intervals a dozen bind tests would take half a minute of
- * genuine waiting, and a suite nobody runs because it is slow is a suite that
- * stops catching things.
+ * announcements, and for a confirmation that never comes. At the real
+ * intervals a dozen bind tests would take half a minute of genuine waiting, and
+ * a suite nobody runs because it is slow is a suite that stops catching things.
  */
 
 /** 500 ms in the field. Between one announcement and the next. */
@@ -23,9 +23,6 @@
 
 /** 2000 ms in the field. How long a master waits to be confirmed. */
 #define HAP_CONFIRM_TIMEOUT_MS 100
-
-/** 200 ms in the field. The fallback when a transport reports no send. */
-#define HAP_KEY_SWITCH_TIMEOUT_MS 50
 
 // HAP_BIND_WINDOW_MS is deliberately left at its real 60 s. No test waits for
 // it - a window closing is checked by driving the state directly - and having

@@ -58,9 +58,17 @@ if(NOT ESP_PLATFORM)
 endif()
 
 if(ESP_PLATFORM)
+  # HAPOpenThreadEsp is the only file that includes OpenThread, and the
+  # requirements pass runs before Kconfig is known, so the component is
+  # required unconditionally and only the source depends on the setting.
+  if(CONFIG_OPENTHREAD_ENABLED)
+    list(APPEND HAPLIB_SRCS "HAPITransport/HAPThread/HAPOpenThreadEsp.cpp")
+  endif()
+
   idf_component_register(SRCS ${HAPLIB_SRCS}
                          INCLUDE_DIRS ${HAPLIB_INCLUDE_DIRS}
-                         REQUIRES HCoreLib)
+                         REQUIRES HCoreLib
+                         PRIV_REQUIRES openthread)
 
   target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 else()

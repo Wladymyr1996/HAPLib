@@ -112,7 +112,7 @@ Two separate things that the tree conflated in `HAPMac`:
 
 ## 5. Framing (protocol version 2)
 
-The header loses both paths and gains both node ids. Proposal for HT-6:
+The header loses both paths and gains both node ids. As implemented by HT-6:
 
 | Offset | Size | Field | Notes |
 | --- | --- | --- | --- |
@@ -125,16 +125,28 @@ The header loses both paths and gains both node ids. Proposal for HT-6:
 | 15 | 8 | src | node id of the originator |
 | 23 | ... | payload | up to `HAP_MAX_PAYLOAD_SIZE` |
 
-- **Payload budget stays 232 bytes** (proposal), so every v1 message structure,
+- **Payload budget stays 232 bytes**, so every v1 message structure,
   including the one-frame `OtaRequest`, keeps fitting unchanged. The frame grows
   to 255 bytes, which UDP does not care about. 6LoWPAN fragments anything longer
   than one 802.15.4 frame, so the *common* frames - reports - should stay small;
   how small is worth knowing from HT-2, not from guessing.
-- **Flags**: `ACK_REQ` and `MORE` stay. `UPSTREAM` goes (nothing climbs).
-  `QUEUED` is kept as a diagnostic bit only (section 11) or freed; HT-6 decides.
+- **Flags**: `ACK_REQ` (`0x01`) and `MORE` (`0x04`) stay. `UPSTREAM` (`0x02`) is
+  removed and its bit is reserved with the other unused ones (`0xF2`, written as
+  zero). `QUEUED` (`0x08`) is kept as a diagnostic bit (section 11).
+- **Ids on the wire** are their eight bytes in stored (canonical EUI-64) order,
+  not a little-endian integer. `src` is the originator, is never zero and is not
+  rewritten by a node that relays the frame. `decode()` rejects a zero `src`
+  (`NoSource`), `encode()` refuses to write one, and a version 1 frame is
+  `BadVersion` - there is no compatibility mode.
+- **Interim tree (until HT-7):** upstream traffic still climbs hop by hop with
+  `dst` zero. Nothing forwards downward any more: a frame for a node is sent
+  straight to its id, except that a direct child still goes through the child
+  table so a sleeping one can be queued for. A node that is part of a tree
+  accepts a frame addressed to it from any sender; the network key is the
+  boundary, as the trust model above says.
 - A receiver drops a frame whose `dst` is neither its own id nor zero-while-I-am-
   master. That guards against a transport address that has been reassigned to
-  another node.
+  another node. (Not enforced yet; HT-7.)
 
 ### Message catalogue changes
 
@@ -144,9 +156,9 @@ The header loses both paths and gains both node ids. Proposal for HT-6:
 | `BindAccept` | `EnrolAccept`: no child index, no channel, no key; carries the master's name |
 | `BindConfirm` | removed: Thread joining already proved the node holds the network key |
 | `ChildAttached` | removed: the enrolling node tells the master itself |
-| `RouteError` | removed: transport send failure or an `ACK_REQ` timeout says the same |
+| `RouteError` | removed (HT-6, message `0x40` is unassigned): transport send failure or an `ACK_REQ` timeout says the same |
 | Describe, Report, Read, Write, SetPolicy, SetName, Ping, Ack, Nack, Ota | unchanged payloads |
-| Set/Clear/ListLinks | node ids instead of paths (section 12) |
+| Set/Clear/ListLinks | node ids instead of paths (section 12). Interim layout from HT-6: a port reference is a node id plus class, instance and port (11 bytes, a link spec 23); a zero node means the node holding the link |
 | - | new: replication, handover and takeover messages (sections 8-10), proposed range `0x70`-`0x7F` |
 
 Result codes `NoSuchChild`, `ChildUnreachable` and `NoRoom` become reserved.

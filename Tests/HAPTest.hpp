@@ -66,7 +66,6 @@ int report() noexcept;
 #define CHECK_BYTES(buffer, size, expectedHex) \
   HAPTest::checkBytes((buffer), (size), (expectedHex), #buffer, __LINE__)
 
-void runPathTests() noexcept;
 void runAddressTests() noexcept;
 void runCodecTests() noexcept;
 void runFrameTests() noexcept;

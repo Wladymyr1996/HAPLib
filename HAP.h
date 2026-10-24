@@ -132,9 +132,6 @@ constexpr const char* HAPLibVersion() noexcept {
 /** What is left of a frame once the header has taken its share: 232 bytes. */
 #define HAP_MAX_PAYLOAD_SIZE (HAP_MAX_FRAME_SIZE - HAP_HEADER_SIZE)
 
-/** Hops in the deepest possible address. A path fits in this many bytes. */
-#define HAP_MAX_DEPTH 5
-
 /** Longest name, in BYTES - "Кімната" is 14 of them and 7 characters. */
 #define HAP_MAX_NAME_LEN 31
 
@@ -172,9 +169,6 @@ constexpr const char* HAPLibVersion() noexcept {
 
 /** Room for a transport address - an IPv6 address, the widest one in view. */
 #define HAP_ADDRESS_LEN 16
-
-/** Widest text form of a path: "254.254.254.254.254". */
-#define HAP_PATH_TEXT_LEN 19
 
 static_assert(HAP_HEADER_SIZE + HAP_MAX_PAYLOAD_SIZE == HAP_MAX_FRAME_SIZE,
               "The payload budget must be exactly what the header leaves over.");

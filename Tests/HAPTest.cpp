@@ -133,7 +133,6 @@ int report() noexcept {
 }  // namespace HAPTest
 
 int main() {
-  runPathTests();
   runAddressTests();
   runCodecTests();
   runFrameTests();

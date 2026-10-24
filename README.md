@@ -16,12 +16,10 @@ Gateway ──1── Heating controller ──2── Thermometer (bedroom, bat
 
 ## What it does
 
-- **Addresses by path, not by identity.** The bedroom thermometer is `1.2` from
-  the gateway and `2` from the controller above it. No node knows its own global
-  address, and re-binding a subtree tells nobody anything.
-- **Builds the return route on the way up.** Each node prepends the child a frame
-  arrived from, so a climbing frame's source path is — at every node it passes —
-  the downward path from *that* node to the origin.
+- **Addresses by node id.** Every frame carries the 8-byte id of its originator
+  and of its destination (all zero means the master), so a reply is simply
+  addressed to the id that sent the request. Reports still climb the interim
+  tree hop by hop, untouched on the way.
 - **Binds with a press at each end.** A 60 s window on the master, an announcement
   from the slave, and a link key.
 - **Reaches devices that are not there.** A battery node is awake for ~250 ms a
@@ -49,11 +47,10 @@ Gateway ──1── Heating controller ──2── Thermometer (bedroom, bat
 | Module | Does |
 | --- | --- |
 | `HAPStack` | all of the below as one object — what an application actually holds |
-| `HAPPath` | the 5-hop relative address, and the shift/prepend pair routing rests on |
-| `HAPFrame` | the 18-byte header; the payload is a view, not a copy |
+| `HAPFrame` | the 23-byte header with source and destination node ids; the payload is a view, not a copy |
 | `HAPCodec` | bounds-checked primitives, with sticky failure so one check covers a whole message |
-| `HAPMessages` | all 26 payloads as typed structures |
-| `HAPRouter` | parent, children, and the two forwarding rules — no radio, no timers |
+| `HAPMessages` | all 25 payloads as typed structures |
+| `HAPRouter` | parent, children, and where a frame goes — no radio, no timers |
 | `HAPITransport` | the radio seam: an in-memory bus on the host, no on-target backend yet |
 | `HAPNode` · `HAPInstance` · `HAPClasses` | this device: its instances, their ports, its descriptor revision |
 | `HAPBinder` · `HAPRandom` | both halves of the handshake, and the link key |

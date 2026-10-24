@@ -20,7 +20,7 @@
  * It is a checksum and not a hash. Two different descriptors can collide, and if
  * one ever does the master keeps a stale cache until something else changes -
  * an annoyance, not a hazard, and cheap at sixteen bits in a frame that has to
- * fit in 250.
+ * fit in HAP_MAX_FRAME_SIZE.
  */
 uint16_t HAPCrc16(const uint8_t* data, size_t size) noexcept;
 

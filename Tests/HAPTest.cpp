@@ -139,6 +139,7 @@ int main() {
   runFrameTests();
   runMessageTests();
   runRouterTests();
+  runLoopbackTests();
   runTreeTests();
   runNodeTests();
   runBinderTests();

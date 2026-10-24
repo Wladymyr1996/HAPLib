@@ -266,7 +266,9 @@ bool HAPBinder::sendAnnouncement() noexcept {
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size = frame.encode(buffer, sizeof(buffer));
 
-  return size > 0 && transport_.broadcast(buffer, size);
+  // A node that has never joined a network can multicast here. On Thread it
+  // cannot, until the enrol handshake replaces this announcement.
+  return size > 0 && transport_.multicast(buffer, size);
 }
 
 bool HAPBinder::handleAccept(const HAPAddress& from, const HAPFrame& frame) noexcept {

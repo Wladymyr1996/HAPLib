@@ -72,6 +72,7 @@ void runCodecTests() noexcept;
 void runFrameTests() noexcept;
 void runMessageTests() noexcept;
 void runRouterTests() noexcept;
+void runLoopbackTests() noexcept;
 void runTreeTests() noexcept;
 void runNodeTests() noexcept;
 void runBinderTests() noexcept;

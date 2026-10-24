@@ -11,7 +11,7 @@
  * @file HAPBinderTest.cpp
  * @brief The handshake, on the simulated radio.
  *
- * Two nodes that have never met, a broadcast, and four frames later a tree.
+ * Two nodes that have never met, a multicast, and four frames later a tree.
  *
  * Timers are real HTimers against the real clock, so anything that has to wait
  * is waited for. The tests keep those waits to the announce period and the

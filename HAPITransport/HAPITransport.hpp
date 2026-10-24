@@ -25,11 +25,27 @@
  * implementation, and the vtable costs one indirection per frame.
  *
  * ## What an implementation must promise
- * - **send() is not delivery.** It reports that the frame was handed to the
- *   radio. Whether anything received it is answered by the protocol above, and
- *   on a sleeping peer the honest answer is usually "no".
- * - **The receiver runs where the radio does.** On ESP-NOW that is the Wi-Fi
- *   task, where blocking is not allowed and calling back into HAP is not safe -
+ * It is an IP-style datagram interface: no channel, no peer table, no key and
+ * no delivery report. Whoever is behind it - a Thread stack, a simulated bus -
+ * must behave the same way, because code written against a permissive simulator
+ * would fail on the first real board.
+ *
+ * - **send() is not delivery.** `true` means the frame was handed to the
+ *   stack; `false` is only ever a local failure (not started or not attached,
+ *   a null pointer, a size of 0 or above HAP_MAX_FRAME_SIZE, a full queue).
+ *   Whether anything received it is answered by the protocol above - with
+ *   ACK_REQ and timeouts - and on a sleeping peer the honest answer is usually
+ *   "no".
+ * - **An address nobody holds is lost silently.** The send still returns true.
+ * - **HAPAddress::master() is anycast.** It is a valid destination for send(),
+ *   resolved when the frame is delivered rather than when it is sent, and a
+ *   frame for a master nobody serves is lost silently. Which node answers is
+ *   the stack's choice, not a promise of this interface.
+ * - **`from` is always the sender's own unicast address**, never master().
+ * - **begin() may return before the node is attached** to a network. Poll
+ *   isAttached(); send() and multicast() fail until it is true.
+ * - **The receiver runs where the stack does.** On a real radio that can be a
+ *   task where blocking is not allowed and calling back into HAP is not safe -
  *   so an implementation copies into a queue and nothing more.
  */
 class HAPITransport {
@@ -44,23 +60,36 @@ class HAPITransport {
 
   virtual ~HAPITransport();
 
-  /** @brief Brings the radio up. */
+  /**
+   * @brief Brings the stack up.
+   *
+   * May return before the node has joined a network; see isAttached().
+   */
   virtual bool begin() = 0;
 
   /** @brief This node's own identity. */
   virtual const HAPNodeId& localId() const noexcept = 0;
 
-  /** @brief Hands one frame to the radio. See the note above about delivery. */
+  /** @brief True once the node has joined a network and can send and receive. */
+  virtual bool isAttached() const noexcept = 0;
+
+  /**
+   * @brief Hands one frame to the stack, for one address or for master().
+   *
+   * See the notes above: true is not delivery, an unknown address is lost
+   * silently, and master() is resolved at delivery.
+   */
   virtual bool send(const HAPAddress& to, const uint8_t* data,
                     size_t size) = 0;
 
   /**
-   * @brief Sends to everyone in range, unencrypted.
+   * @brief Sends to every attached node in range except this one.
    *
    * Only binding uses this, and only because a node that has never met anybody
-   * has no other way to be heard.
+   * has no other way to be heard. There is no per-peer key: whatever protects
+   * the network protects this too.
    */
-  virtual bool broadcast(const uint8_t* data, size_t size) = 0;
+  virtual bool multicast(const uint8_t* data, size_t size) = 0;
 
   /** @brief Installs the receiver. One at a time; the last wins. */
   virtual void onReceive(Receiver receiver) = 0;

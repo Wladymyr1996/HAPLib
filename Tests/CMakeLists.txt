@@ -57,6 +57,7 @@ add_executable(haptests
     "HAPFrameTest.cpp"
     "HAPMessagesTest.cpp"
     "HAPRouterTest.cpp"
+    "HAPLoopbackTest.cpp"
     "HAPTreeTest.cpp"
     "HAPNodeTest.cpp"
     "HAPBinderTest.cpp"

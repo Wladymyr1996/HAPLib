@@ -6,21 +6,46 @@
 
 /**
  * @file HAPLoopback.hpp
- * @brief A radio made of memory, so a whole network fits inside one test.
+ * @brief A network made of memory, so a whole tree fits inside one test.
  *
  * Host builds only. Several nodes attach to one HAPLoopbackBus, each with its
- * own address, and frames move between them when the
- * test says so.
+ * own address, and frames move between them when the test says so.
  *
  * ## It is deliberately unhelpful
  * A simulator that delivers everything to everybody would let code pass that
- * cannot work on a real board, so this one is strict about what a radio is:
+ * cannot work on a real board, so this one behaves the way Thread does:
  *
+ * - a send that returns `true` only means the frame was queued, and a unicast
+ *   to an address no node holds is **lost silently**;
+ * - `HAPAddress::master()` is **anycast**: it reaches exactly one node that
+ *   serves it, chosen when the frame is delivered, and nobody at all when no
+ *   node does;
+ * - a node that is not attached **neither sends nor receives**, not even a
+ *   frame that was already queued for it;
  * - nothing is delivered until the test pumps the bus, so no send ever
  *   completes inside the caller's own stack frame.
  *
  * Each of those is a real failure that has cost somebody a day with two boards
  * and a serial log, and each is now a test that runs in a millisecond.
+ *
+ * ## Edge cases, decided
+ * - A node receives only while it is started AND attached. One that never
+ *   called begin() receives nothing, whatever setAttached() says.
+ * - begin() attaches the node, even after an earlier setAttached(false).
+ * - setServesMaster(true) makes a node an anycast server. Of several
+ *   candidates the lowest node id that is attached and reachable from the
+ *   sender gets the frame. That tie-break is a convenience for tests, not a
+ *   promise: Thread picks the nearest server.
+ * - A server that sends to master() does not hear itself, so a stack must
+ *   handle its own local delivery.
+ * - Unicast to an unknown address and anycast with no server are not counted
+ *   by HAPLoopbackBus::droppedCount(), which counts only dropNext() losses.
+ *
+ * ## What it does not model
+ * - Sleepy reception ("a sleepy end device receives only while it polls"):
+ *   deferred until the poll and listen-window semantics are designed.
+ * - Attachment takes time on Thread, where begin() returns first. Here it is
+ *   immediate, so tests that need the gap use setAttached(false).
  */
 
 class HAPLoopback;
@@ -76,9 +101,17 @@ class HAPLoopbackBus {
  private:
   friend class HAPLoopback;
 
+  /** What the sender asked for, which decides who may receive the frame. */
+  enum class Kind : uint8_t {
+    Unicast,   ///< To one address.
+    Anycast,   ///< To master(): one serving node, chosen at delivery.
+    Multicast  ///< To every attached node but the sender.
+  };
+
   struct Packet {
+    Kind kind = Kind::Unicast;
     HAPAddress from;
-    HAPAddress to;
+    HAPAddress to;  ///< Unused by a multicast.
     uint8_t data[HAP_MAX_FRAME_SIZE] = {};
     size_t size = 0;
   };
@@ -88,10 +121,14 @@ class HAPLoopbackBus {
     HAPNodeId b;
   };
 
-  /** Called by a node's send()/broadcast(). */
+  /** Called by a node's send()/multicast(). */
   bool enqueue(const Packet& packet) noexcept;
 
   HAPLoopback* find(const HAPAddress& address) const noexcept;
+
+  /** Attached, not the sender, and not cut off from it. */
+  bool hears(const HAPLoopback& node, const Packet& packet) const noexcept;
+
   void deliver(const Packet& packet) noexcept;
 
   etl::vector<HAPLoopback*, kMaxNodes> nodes_;
@@ -120,12 +157,31 @@ class HAPLoopback : public HAPITransport {
   bool begin() override;
   const HAPNodeId& localId() const noexcept override;
 
+  /** @brief Started and attached: the only state in which a node hears anything. */
+  bool isAttached() const noexcept override;
+
   /** @brief The address other nodes on the bus reach this one at. */
   const HAPAddress& localAddress() const noexcept;
 
   bool send(const HAPAddress& to, const uint8_t* data, size_t size) override;
-  bool broadcast(const uint8_t* data, size_t size) override;
+  bool multicast(const uint8_t* data, size_t size) override;
   void onReceive(Receiver receiver) override;
+
+  /**
+   * @brief Test hook: leaves or rejoins the network.
+   *
+   * Detached, the node's send() and multicast() fail and it receives nothing,
+   * including frames already queued for it. begin() attaches it again.
+   */
+  void setAttached(bool attached) noexcept;
+
+  /**
+   * @brief Test hook: makes this node an anycast server for master().
+   *
+   * Not part of the interface: how a real node becomes the server is the
+   * Thread backend's business.
+   */
+  void setServesMaster(bool serves) noexcept;
 
   /** @brief Frames this node has handed to the bus, and taken off it. */
   size_t sentCount() const noexcept;
@@ -137,11 +193,18 @@ class HAPLoopback : public HAPITransport {
   /** Called by the bus when a frame reaches this node. */
   void receive(const HAPLoopbackBus::Packet& packet) noexcept;
 
+  bool servesMaster() const noexcept;
+
+  bool post(HAPLoopbackBus::Kind kind, const HAPAddress& to,
+            const uint8_t* data, size_t size) noexcept;
+
   HAPNodeId id_;
   HAPAddress address_;
   HAPLoopbackBus& bus_;
   Receiver receiver_;
   bool started_ = false;
+  bool attached_ = false;
+  bool servesMaster_ = false;
 
   size_t sent_ = 0;
   size_t received_ = 0;

@@ -87,26 +87,57 @@ void HAPLoopbackBus::deliver(const Packet& packet) noexcept {
     return;
   }
 
-  for (HAPLoopback* node : nodes_) {
-    if (node->localAddress() == packet.from) {
-      continue;  // A radio does not hear itself.
+  switch (packet.kind) {
+    case Kind::Unicast: {
+      // An address nobody holds is not an error and not a drop: the frame was
+      // handed to the network, which had nowhere to take it.
+      HAPLoopback* node = find(packet.to);
+
+      if (node != nullptr && hears(*node, packet)) {
+        node->receive(packet);
+        ++delivered_;
+      }
+      break;
     }
 
-    const bool addressed =
-        packet.to.isBroadcast() || node->localAddress() == packet.to;
-    if (!addressed) {
-      continue;
+    case Kind::Anycast: {
+      // Resolved NOW, among the servers that could actually receive it, and
+      // not when it was sent - the way an ALOC is resolved in the mesh. With
+      // none, the frame is lost without a word.
+      HAPLoopback* server = nullptr;
+
+      for (HAPLoopback* node : nodes_) {
+        if (node->servesMaster() && hears(*node, packet) &&
+            (server == nullptr || node->localId() < server->localId())) {
+          server = node;
+        }
+      }
+
+      if (server != nullptr) {
+        server->receive(packet);
+        ++delivered_;
+      }
+      break;
     }
 
-    // A pair of nodes that cannot hear each other receives nothing, and it
-    // looks exactly like a protocol bug from the far end.
-    if (!isReachable(packet.from.nodeId(), node->localId())) {
-      continue;
-    }
-
-    node->receive(packet);
-    ++delivered_;
+    case Kind::Multicast:
+      for (HAPLoopback* node : nodes_) {
+        if (hears(*node, packet)) {
+          node->receive(packet);
+          ++delivered_;
+        }
+      }
+      break;
   }
+}
+
+bool HAPLoopbackBus::hears(const HAPLoopback& node,
+                           const Packet& packet) const noexcept {
+  // A radio does not hear itself, a node that has left the network hears
+  // nothing, and a pair that cannot hear each other receives nothing - which
+  // looks exactly like a protocol bug from the far end.
+  return node.isAttached() && node.localAddress() != packet.from &&
+         isReachable(packet.from.nodeId(), node.localId());
 }
 
 size_t HAPLoopbackBus::pump() noexcept {
@@ -170,7 +201,24 @@ HAPLoopback::~HAPLoopback() {
 
 bool HAPLoopback::begin() {
   started_ = true;
+  attached_ = true;
   return true;
+}
+
+bool HAPLoopback::isAttached() const noexcept {
+  return started_ && attached_;
+}
+
+void HAPLoopback::setAttached(bool attached) noexcept {
+  attached_ = attached;
+}
+
+void HAPLoopback::setServesMaster(bool serves) noexcept {
+  servesMaster_ = serves;
+}
+
+bool HAPLoopback::servesMaster() const noexcept {
+  return servesMaster_;
 }
 
 const HAPNodeId& HAPLoopback::localId() const noexcept {
@@ -182,32 +230,28 @@ const HAPAddress& HAPLoopback::localAddress() const noexcept {
 }
 
 bool HAPLoopback::send(const HAPAddress& to, const uint8_t* data, size_t size) {
-  if (!started_ || data == nullptr || size == 0 || size > HAP_MAX_FRAME_SIZE) {
-    return false;
-  }
+  const HAPLoopbackBus::Kind kind = to.isMaster()
+                                        ? HAPLoopbackBus::Kind::Anycast
+                                        : HAPLoopbackBus::Kind::Unicast;
 
-  HAPLoopbackBus::Packet packet;
-  packet.from = address_;
-  packet.to = to;
-  std::memcpy(packet.data, data, size);
-  packet.size = size;
-
-  if (!bus_.enqueue(packet)) {
-    return false;
-  }
-
-  ++sent_;
-  return true;
+  return post(kind, to, data, size);
 }
 
-bool HAPLoopback::broadcast(const uint8_t* data, size_t size) {
-  if (!started_ || data == nullptr || size == 0 || size > HAP_MAX_FRAME_SIZE) {
+bool HAPLoopback::multicast(const uint8_t* data, size_t size) {
+  return post(HAPLoopbackBus::Kind::Multicast, HAPAddress::zero(), data, size);
+}
+
+bool HAPLoopback::post(HAPLoopbackBus::Kind kind, const HAPAddress& to,
+                       const uint8_t* data, size_t size) noexcept {
+  if (!isAttached() || data == nullptr || size == 0 ||
+      size > HAP_MAX_FRAME_SIZE) {
     return false;
   }
 
   HAPLoopbackBus::Packet packet;
+  packet.kind = kind;
   packet.from = address_;
-  packet.to = HAPAddress::broadcast();
+  packet.to = to;
   std::memcpy(packet.data, data, size);
   packet.size = size;
 

@@ -423,7 +423,7 @@ void testAUnicastToNobodyIsLostSilently() noexcept {
   CHECK(tree.bus.deliveredCount() == delivered);
 }
 
-void testBroadcastReachesEveryoneInRange() noexcept {
+void testMulticastReachesEveryoneAttached() noexcept {
   Tree tree;
   TestNode newcomer(9, tree.bus);
 
@@ -434,7 +434,7 @@ void testBroadcastReachesEveryoneInRange() noexcept {
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size = announce.encode(buffer, sizeof(buffer));
 
-  CHECK(newcomer.transport().broadcast(buffer, size));
+  CHECK(newcomer.transport().multicast(buffer, size));
   CHECK(tree.bus.pumpAll() > 0);
 
   // Every node on the bus received it; each router then refused it, because
@@ -496,6 +496,6 @@ void runTreeTests() noexcept {
   testTheOtherBranchIsUndisturbed();
   testAStrangerIsIgnored();
   testAUnicastToNobodyIsLostSilently();
-  testBroadcastReachesEveryoneInRange();
+  testMulticastReachesEveryoneAttached();
   testDepthFive();
 }

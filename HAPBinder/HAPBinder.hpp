@@ -25,7 +25,7 @@
  * conversation that follows, on either side of it.
  *
  * ## It does not route, and does not need to
- * Every frame of a bind travels exactly one hop: the announcement is broadcast,
+ * Every frame of a bind travels exactly one hop: the announcement is multicast,
  * and the accept and the confirmation are unicast between two devices that are
  * about to become parent and child. So the binder talks to the transport
  * directly and never asks the router to forward anything.
@@ -36,7 +36,7 @@
  * business: it fires onChildBound() and whoever owns the stack sends it.
  *
  * ## The window is the exposure
- * The announcement is broadcast in the clear and the accept carries the link
+ * The announcement is multicast in the clear and the accept carries the link
  * key. That is the protocol's one honest weak point, mitigated by needing a
  * physical press at each end, by a short window, and by the accept going only to
  * the address that announced - and not eliminated. See Docs/Protocol.md

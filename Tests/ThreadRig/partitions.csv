@@ -1,0 +1,11 @@
+# Thread rig flash layout - ESP32-C6FH8, 8 MB in-package flash.
+#
+# One factory app and no OTA: boards are flashed over USB. The app slot is 2 MB
+# because the OpenThread image alone is about 880 KB and HAPLib adds to it.
+# `nvs` holds IDF's own data and the Thread settings. The rig never mounts a
+# filesystem, so there is no LittleFS partition.
+#
+# Name,    Type, SubType, Offset,   Size
+nvs,       data, nvs,     0x9000,   0x6000,
+phy_init,  data, phy,     0xf000,   0x1000,
+factory,   app,  factory, 0x10000,  0x200000,

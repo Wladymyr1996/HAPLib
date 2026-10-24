@@ -1,3 +1,6 @@
 .impl/
 build
 .vscode
+Tests/ThreadRig/sdkconfig
+Tests/ThreadRig/sdkconfig.old
+Tests/ThreadRig/managed_components/

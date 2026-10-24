@@ -25,13 +25,9 @@
 
 namespace {
 
-HAPMac macFor(uint8_t id) noexcept {
-  HAPMac mac;
-  mac.bytes[0] = 0x24;
-  mac.bytes[1] = 0x6F;
-  mac.bytes[2] = 0x28;
-  mac.bytes[5] = id;
-  return mac;
+HAPNodeId idFor(uint8_t id) noexcept {
+  const uint8_t mac[HAP_MAC_LEN] = {0x24, 0x6F, 0x28, 0x00, 0x00, id};
+  return HAPNodeId::fromMac(mac);
 }
 
 /** A node with just enough around it to bind: radio, router, model, binder. */
@@ -39,8 +35,8 @@ class BindableNode {
  public:
   BindableNode(uint8_t id, HAPLoopbackBus& bus, HAPDeviceType type,
                uint8_t capabilities, const char* name) noexcept
-      : mac_(macFor(id)),
-        transport_(mac_, bus),
+      : id_(idFor(id)),
+        transport_(id_, bus),
         binder_(transport_, router_, node_) {
     node_.begin(type, capabilities, HAPName(name));
     node_.setReportIntervalSec(60);
@@ -67,7 +63,8 @@ class BindableNode {
   HAPRouter& router() noexcept { return router_; }
   HAPBinder& binder() noexcept { return binder_; }
   HAPLoopback& transport() noexcept { return transport_; }
-  const HAPMac& mac() const noexcept { return mac_; }
+  const HAPNodeId& id() const noexcept { return id_; }
+  HAPAddress address() const noexcept { return HAPAddress::fromNodeId(id_); }
 
   /** Frames that reached this node but belonged to no handshake. */
   size_t unhandled() const noexcept { return unhandled_; }
@@ -82,7 +79,7 @@ class BindableNode {
   void update() noexcept { binder_.update(); }
 
  private:
-  void onFrame(const HAPMac& from, const uint8_t* data, size_t size) noexcept {
+  void onFrame(const HAPAddress& from, const uint8_t* data, size_t size) noexcept {
     HAPFrame frame;
     if (HAPFrame::decode(data, size, frame) != HAPFrameError::None) {
       return;
@@ -97,7 +94,7 @@ class BindableNode {
     ++unhandled_;
   }
 
-  void onSent(const HAPMac& to, bool delivered) noexcept {
+  void onSent(const HAPAddress& to, bool delivered) noexcept {
     binder_.notifySent(to, delivered);
   }
 
@@ -107,7 +104,7 @@ class BindableNode {
     std::memcpy(key_, binder_.linkKey(), HAP_KEY_LEN);
   }
 
-  void bound(const HAPMac& parent, uint8_t index, const uint8_t* linkKey,
+  void bound(const HAPAddress& parent, uint8_t index, const uint8_t* linkKey,
              uint8_t channel) noexcept {
     (void)parent;
     (void)index;
@@ -116,7 +113,7 @@ class BindableNode {
     std::memcpy(key_, linkKey, HAP_KEY_LEN);
   }
 
-  HAPMac mac_;
+  HAPNodeId id_;
   HAPLoopback transport_;
   HAPRouter router_;
   HAPNode node_;
@@ -192,7 +189,7 @@ void testTheWholeHandshake() noexcept {
 
   CHECK(master.router().childCount() == 1);
   CHECK(master.lastChild().index == 1);
-  CHECK(master.lastChild().mac == slave.mac());
+  CHECK(master.lastChild().id == slave.id());
   CHECK(master.lastChild().isBatteryPowered());
   CHECK(master.lastChild().deviceType == HAPDeviceType::Sensor);
 
@@ -201,7 +198,7 @@ void testTheWholeHandshake() noexcept {
   CHECK(master.lastChild().descriptorRev == slave.node().descriptorRev());
 
   CHECK(slave.router().hasParent());
-  CHECK(slave.router().parentMac() == master.mac());
+  CHECK(slave.router().parentId() == master.id());
   CHECK(slave.router().indexAtParent() == 1);
   CHECK(slave.binder().state() == HAPBinder::State::Bound);
 
@@ -237,7 +234,7 @@ void testTheLinkIsActuallyEncryptedAfterwards() noexcept {
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size = ping.encode(buffer, sizeof(buffer));
 
-  CHECK(master.transport().send(slave.mac(), buffer, size));
+  CHECK(master.transport().send(slave.address(), buffer, size));
   bus.pumpAll();
   CHECK(slave.transport().receivedCount() == before + 1);
 }
@@ -271,7 +268,7 @@ void testAFullMasterRefuses() noexcept {
   for (uint8_t i = 1; i <= HAP_MAX_CHILDREN; ++i) {
     HAPChild child;
     child.index = i;
-    child.mac = macFor(static_cast<uint8_t>(0x40 + i));
+    child.id = idFor(static_cast<uint8_t>(0x40 + i));
     CHECK(master.router().addChild(child));
   }
 
@@ -326,7 +323,7 @@ void testAnAbandonedAcceptGivesTheSlotBack() noexcept {
   master.update();
 
   CHECK(master.router().childCount() == 0);
-  CHECK(!master.transport().hasPeer(slave.mac()));
+  CHECK(!master.transport().hasPeer(slave.address()));
 
   // And the window is still open for whatever is left of its minute.
   CHECK(master.binder().state() == HAPBinder::State::Listening);
@@ -365,7 +362,7 @@ void testTheAcceptGoesOnlyToWhoeverAnnounced() noexcept {
   CHECK(slave.sawBound());
   CHECK(!bystander.sawBound());
   CHECK(master.router().childCount() == 1);
-  CHECK(master.router().childByMac(bystander.mac()) == nullptr);
+  CHECK(master.router().childById(bystander.id()) == nullptr);
 }
 
 void testTheSweepFindsAMasterOnAnotherChannel() noexcept {

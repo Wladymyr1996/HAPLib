@@ -4,20 +4,20 @@
 
 namespace {
 
-const HAPMac kGateway = HAPMac::fromBytes(
+const HAPNodeId kGateway = HAPNodeId::fromMac(
     reinterpret_cast<const uint8_t*>("\x24\x6F\x28\x00\x00\x01"));
-const HAPMac kController = HAPMac::fromBytes(
+const HAPNodeId kController = HAPNodeId::fromMac(
     reinterpret_cast<const uint8_t*>("\x24\x6F\x28\x00\x00\x02"));
-const HAPMac kThermometer = HAPMac::fromBytes(
+const HAPNodeId kThermometer = HAPNodeId::fromMac(
     reinterpret_cast<const uint8_t*>("\x24\x6F\x28\x00\x00\x03"));
-const HAPMac kStranger = HAPMac::fromBytes(
+const HAPNodeId kStranger = HAPNodeId::fromMac(
     reinterpret_cast<const uint8_t*>("\xAA\xBB\xCC\xDD\xEE\xFF"));
 
-HAPChild makeChild(uint8_t index, const HAPMac& mac,
+HAPChild makeChild(uint8_t index, const HAPNodeId& mac,
                    uint8_t capabilities = HAPCaps::None) noexcept {
   HAPChild child;
   child.index = index;
-  child.mac = mac;
+  child.id = mac;
   child.capabilities = capabilities;
   return child;
 }
@@ -48,8 +48,8 @@ void testChildBookkeeping() noexcept {
   CHECK(router.childCount() == 1);
   CHECK(router.freeChildIndex() == 2);
   CHECK(router.child(1) != nullptr);
-  CHECK(router.childByMac(kController) != nullptr);
-  CHECK(router.childByMac(kStranger) == nullptr);
+  CHECK(router.childById(kController) != nullptr);
+  CHECK(router.childById(kStranger) == nullptr);
 
   // An index already in use, and a device already present under another index -
   // the second would make one node visible by two paths.
@@ -77,7 +77,7 @@ void testTheParentCostsAChildSlot() noexcept {
   CHECK(bound.childCapacity() == HAP_MAX_CHILDREN - 1);
 
   for (uint8_t i = 1; i < HAP_MAX_CHILDREN; ++i) {
-    HAPMac mac = kGateway;
+    HAPNodeId mac = kGateway;
     mac.bytes[5] = i;
     CHECK(bound.addChild(makeChild(i, mac)));
   }
@@ -90,7 +90,7 @@ void testTheParentCostsAChildSlot() noexcept {
   // radio, where the acceptance goes out, the peer cannot be made encrypted,
   // the confirmation is dropped below the protocol, and the only symptom is
   // "nobody confirmed".
-  HAPMac extra = kGateway;
+  HAPNodeId extra = kGateway;
   extra.bytes[5] = HAP_MAX_CHILDREN;
   CHECK(!bound.addChild(makeChild(HAP_MAX_CHILDREN, extra)));
 
@@ -105,7 +105,7 @@ void testIndexReuse() noexcept {
   HAPRouter router;
 
   for (uint8_t i = 1; i <= HAP_MAX_CHILDREN; ++i) {
-    HAPMac mac = kGateway;
+    HAPNodeId mac = kGateway;
     mac.bytes[5] = i;
     CHECK(router.addChild(makeChild(i, mac)));
   }
@@ -113,7 +113,7 @@ void testIndexReuse() noexcept {
   CHECK(router.isFull());
   CHECK(router.freeChildIndex() == 0);
 
-  HAPMac extra = kGateway;
+  HAPNodeId extra = kGateway;
   extra.bytes[5] = 0x99;
   CHECK(!router.addChild(makeChild(1, extra)));
 

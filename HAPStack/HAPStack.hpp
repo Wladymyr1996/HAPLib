@@ -231,8 +231,8 @@ class HAPStack {
   uint32_t receivedCount() const noexcept;
 
  private:
-  void onFrame(const HAPMac& from, const uint8_t* data, size_t size) noexcept;
-  void onSendResult(const HAPMac& to, bool delivered) noexcept;
+  void onFrame(const HAPAddress& from, const uint8_t* data, size_t size) noexcept;
+  void onSendResult(const HAPAddress& to, bool delivered) noexcept;
 
   void deliverLocally(const HAPFrame& frame) noexcept;
   void handleRequest(const HAPFrame& frame) noexcept;
@@ -260,7 +260,7 @@ class HAPStack {
                       uint16_t seq = 0) noexcept;
   bool respond(const HAPFrame& to, HAPMessage type, const uint8_t* payload,
                size_t size) noexcept;
-  bool transmit(const HAPMac& mac, const HAPFrame& frame) noexcept;
+  bool transmit(const HAPNodeId& to, const HAPFrame& frame) noexcept;
 
   void sendRouteError(const HAPFrame& frame, uint8_t failedHop,
                       HAPResult reason) noexcept;
@@ -277,7 +277,7 @@ class HAPStack {
    */
   bool announceChild(const HAPChild& child) noexcept;
 
-  void bound(const HAPMac& parent, uint8_t index, const uint8_t* linkKey,
+  void bound(const HAPAddress& parent, uint8_t index, const uint8_t* linkKey,
              uint8_t channel) noexcept;
   void deliverLink(const HAPPortRef& destination, const HValue& value) noexcept;
 

@@ -65,8 +65,9 @@ class HAPLoopbackBus {
   size_t pending() const noexcept;
 
   /** @brief Cuts the air between two nodes, both ways - a node losing power. */
-  void setReachable(const HAPMac& a, const HAPMac& b, bool reachable) noexcept;
-  bool isReachable(const HAPMac& a, const HAPMac& b) const noexcept;
+  void setReachable(const HAPNodeId& a, const HAPNodeId& b,
+                    bool reachable) noexcept;
+  bool isReachable(const HAPNodeId& a, const HAPNodeId& b) const noexcept;
 
   /** @brief Silently loses the next `count` frames, wherever they are going. */
   void dropNext(size_t count) noexcept;
@@ -81,8 +82,8 @@ class HAPLoopbackBus {
   friend class HAPLoopback;
 
   struct Packet {
-    HAPMac from;
-    HAPMac to;
+    HAPAddress from;
+    HAPAddress to;
     uint8_t channel = 0;
     bool encrypted = false;
     uint8_t key[HAP_KEY_LEN] = {};
@@ -91,14 +92,14 @@ class HAPLoopbackBus {
   };
 
   struct Block {
-    HAPMac a;
-    HAPMac b;
+    HAPNodeId a;
+    HAPNodeId b;
   };
 
   /** Called by a node's send()/broadcast(). */
   bool enqueue(const Packet& packet) noexcept;
 
-  HAPLoopback* find(const HAPMac& mac) const noexcept;
+  HAPLoopback* find(const HAPAddress& address) const noexcept;
   void deliver(const Packet& packet) noexcept;
 
   etl::vector<HAPLoopback*, kMaxNodes> nodes_;
@@ -114,22 +115,26 @@ class HAPLoopbackBus {
 class HAPLoopback : public HAPITransport {
  public:
   /**
-   * @param mac This node's address; must be unique on the bus.
+   * @param id This node's identity; must be unique on the bus. The bus is
+   *        MAC-addressed, so the address it is reached at is derived from it.
    * @param bus Not owned, and must outlive this.
    */
-  HAPLoopback(const HAPMac& mac, HAPLoopbackBus& bus) noexcept;
+  HAPLoopback(const HAPNodeId& id, HAPLoopbackBus& bus) noexcept;
 
   ~HAPLoopback() override;
 
   bool begin(uint8_t channel) override;
   uint8_t channel() const noexcept override;
-  const HAPMac& localMac() const noexcept override;
+  const HAPNodeId& localId() const noexcept override;
 
-  bool addPeer(const HAPMac& mac, const uint8_t* key) override;
-  bool removePeer(const HAPMac& mac) override;
-  bool hasPeer(const HAPMac& mac) const noexcept override;
+  /** @brief The address other nodes on the bus reach this one at. */
+  const HAPAddress& localAddress() const noexcept;
 
-  bool send(const HAPMac& mac, const uint8_t* data, size_t size) override;
+  bool addPeer(const HAPAddress& address, const uint8_t* key) override;
+  bool removePeer(const HAPAddress& address) override;
+  bool hasPeer(const HAPAddress& address) const noexcept override;
+
+  bool send(const HAPAddress& to, const uint8_t* data, size_t size) override;
   bool broadcast(const uint8_t* data, size_t size) override;
   void onReceive(Receiver receiver) override;
   void onSendResult(SendResult result) override;
@@ -145,20 +150,21 @@ class HAPLoopback : public HAPITransport {
   friend class HAPLoopbackBus;
 
   struct Peer {
-    HAPMac mac;
+    HAPAddress address;
     bool encrypted = false;
     uint8_t key[HAP_KEY_LEN] = {};
   };
 
-  const Peer* findPeer(const HAPMac& mac) const noexcept;
+  const Peer* findPeer(const HAPAddress& address) const noexcept;
 
   /** Called by the bus when a frame reaches this node. */
   void receive(const HAPLoopbackBus::Packet& packet) noexcept;
 
   /** Called by the bus when a frame this node sent has gone out. */
-  void sent(const HAPMac& to, bool delivered) noexcept;
+  void sent(const HAPAddress& to, bool delivered) noexcept;
 
-  HAPMac mac_;
+  HAPNodeId id_;
+  HAPAddress address_;
   HAPLoopbackBus& bus_;
   Receiver receiver_;
   SendResult sendResult_;

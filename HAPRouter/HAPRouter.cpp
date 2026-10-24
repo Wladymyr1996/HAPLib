@@ -52,14 +52,14 @@ bool HAPChild::hasLinkKey() const noexcept {
 // Parent
 // ---------------------------------------------------------------------------
 
-void HAPRouter::setParent(const HAPMac& mac, uint8_t indexAtParent) noexcept {
-  parentMac_ = mac;
+void HAPRouter::setParent(const HAPNodeId& id, uint8_t indexAtParent) noexcept {
+  parentId_ = id;
   indexAtParent_ = indexAtParent;
   hasParent_ = true;
 }
 
 void HAPRouter::clearParent() noexcept {
-  parentMac_ = HAPMac::zero();
+  parentId_ = HAPNodeId::zero();
   indexAtParent_ = 0;
   hasParent_ = false;
 }
@@ -72,8 +72,8 @@ bool HAPRouter::isRoot() const noexcept {
   return !hasParent_;
 }
 
-const HAPMac& HAPRouter::parentMac() const noexcept {
-  return parentMac_;
+const HAPNodeId& HAPRouter::parentId() const noexcept {
+  return parentId_;
 }
 
 uint8_t HAPRouter::indexAtParent() const noexcept {
@@ -119,7 +119,7 @@ bool HAPRouter::addChild(const HAPChild& newChild) noexcept {
 
   // The same device must not appear twice under two indices: its reports would
   // arrive by two paths and a master would see one thing as two.
-  if (childByMac(newChild.mac) != nullptr) {
+  if (childById(newChild.id) != nullptr) {
     return false;
   }
 
@@ -177,9 +177,9 @@ bool HAPRouter::setChildReportInterval(uint8_t index, uint16_t seconds) noexcept
   return false;
 }
 
-const HAPChild* HAPRouter::childByMac(const HAPMac& mac) const noexcept {
+const HAPChild* HAPRouter::childById(const HAPNodeId& id) const noexcept {
   for (const HAPChild& candidate : children_) {
-    if (candidate.mac == mac) {
+    if (candidate.id == id) {
       return &candidate;
     }
   }
@@ -191,12 +191,12 @@ const HAPChild* HAPRouter::childAt(size_t position) const noexcept {
   return position < children_.size() ? &children_[position] : nullptr;
 }
 
-bool HAPRouter::isKnown(const HAPMac& mac) const noexcept {
-  if (hasParent_ && mac == parentMac_) {
+bool HAPRouter::isKnown(const HAPNodeId& id) const noexcept {
+  if (hasParent_ && id == parentId_) {
     return true;
   }
 
-  return childByMac(mac) != nullptr;
+  return childById(id) != nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,9 +220,9 @@ HAPRoute HAPRouter::resolveDownstream(HAPFrame& frame) const noexcept {
   return toChild(index);
 }
 
-HAPRoute HAPRouter::route(HAPFrame& frame, const HAPMac& from) const noexcept {
-  const bool fromParent = hasParent_ && from == parentMac_;
-  const HAPChild* sender = childByMac(from);
+HAPRoute HAPRouter::route(HAPFrame& frame, const HAPNodeId& from) const noexcept {
+  const bool fromParent = hasParent_ && from == parentId_;
+  const HAPChild* sender = childById(from);
 
   // Nothing inside a frame says where it came from, so the sender's address is
   // the only trustworthy statement about it - and a stranger's frame is the

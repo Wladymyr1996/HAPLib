@@ -1,6 +1,6 @@
 #pragma once
 
-#include <HAPMac/HAPMac.hpp>
+#include <HAPNodeId/HAPNodeId.hpp>
 #include <HAPMessages/HAPMessages.hpp>
 #include <HAPPath/HAPPath.hpp>
 
@@ -26,7 +26,7 @@ struct HAPRemoteNode {
   HAPPath path;
 
   /** Its permanent identity, once ChildAttached has said so. Zero until then. */
-  HAPMac mac;
+  HAPNodeId id;
 
   HAPDeviceType deviceType = HAPDeviceType::Sensor;
   uint8_t capabilities = HAPCaps::None;
@@ -157,7 +157,7 @@ class HAPModel {
    * pulled again. What comes back is only what somebody said, never what was
    * inferred.
    */
-  HAPRemoteNode* restore(const HAPPath& path, const HAPMac& mac,
+  HAPRemoteNode* restore(const HAPPath& path, const HAPNodeId& id,
                          HAPDeviceType deviceType, uint8_t capabilities,
                          uint16_t reportIntervalSec) noexcept;
 
@@ -166,7 +166,7 @@ class HAPModel {
 
   const HAPRemoteNode* at(size_t position) const noexcept;
   const HAPRemoteNode* find(const HAPPath& path) const noexcept;
-  const HAPRemoteNode* findByMac(const HAPMac& mac) const noexcept;
+  const HAPRemoteNode* findById(const HAPNodeId& id) const noexcept;
 
   /**
    * @brief The first node whose cached descriptor is out of date.

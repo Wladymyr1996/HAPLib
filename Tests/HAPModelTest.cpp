@@ -16,13 +16,9 @@
 
 namespace {
 
-HAPMac macFor(uint8_t id) noexcept {
-  HAPMac mac;
-  mac.bytes[0] = 0x24;
-  mac.bytes[1] = 0x6F;
-  mac.bytes[2] = 0x28;
-  mac.bytes[5] = id;
-  return mac;
+HAPNodeId idFor(uint8_t id) noexcept {
+  const uint8_t mac[HAP_MAC_LEN] = {0x24, 0x6F, 0x28, 0x00, 0x00, id};
+  return HAPNodeId::fromMac(mac);
 }
 
 HAPPath pathOf(uint8_t a, uint8_t b = 0) noexcept {
@@ -190,13 +186,13 @@ void testChildAttachedNamesTheNodeBeforeItSpeaks() noexcept {
   attached.capabilities = HAPCaps::BatteryPowered;
   attached.reportIntervalSec = 60;
   attached.descriptorRev = 0x9C4A;
-  std::memcpy(attached.mac, macFor(0x33).bytes, HAP_MAC_LEN);
+  idFor(0x33).toMac(attached.mac);
 
   const HAPRemoteNode* node = model.noteChildAttached(pathOf(1), attached);
 
   CHECK(node != nullptr);
   CHECK(std::strcmp(node->path.toString().c_str(), "1.2") == 0);
-  CHECK(node->mac == macFor(0x33));
+  CHECK(node->id == idFor(0x33));
   CHECK(node->isBatteryPowered());
 
   // Which is the point: a battery sensor is known at the moment it binds rather
@@ -204,8 +200,8 @@ void testChildAttachedNamesTheNodeBeforeItSpeaks() noexcept {
   CHECK(node->reportIntervalSec == 60);
   CHECK(node->needsDescribe());
 
-  CHECK(model.findByMac(macFor(0x33)) != nullptr);
-  CHECK(model.findByMac(macFor(0x99)) == nullptr);
+  CHECK(model.findById(idFor(0x33)) != nullptr);
+  CHECK(model.findById(idFor(0x99)) == nullptr);
 }
 
 void testADeviceThatMovedIsOneDeviceStill() noexcept {
@@ -215,7 +211,7 @@ void testADeviceThatMovedIsOneDeviceStill() noexcept {
   attached.childIndex = 2;
   attached.reportIntervalSec = 60;
   attached.descriptorRev = 0x9C4A;
-  std::memcpy(attached.mac, macFor(0x33).bytes, HAP_MAC_LEN);
+  idFor(0x33).toMac(attached.mac);
 
   model.noteChildAttached(pathOf(1), attached);
   CHECK(model.size() == 1);
@@ -230,7 +226,7 @@ void testADeviceThatMovedIsOneDeviceStill() noexcept {
   CHECK(model.size() == 1);
   CHECK(model.find(pathOf(1, 2)) == nullptr);
   CHECK(model.find(pathOf(3, 1)) != nullptr);
-  CHECK(model.findByMac(macFor(0x33))->path == pathOf(3, 1));
+  CHECK(model.findById(idFor(0x33))->path == pathOf(3, 1));
 }
 
 void testSilenceIsMeasuredAgainstAPromise() noexcept {
@@ -240,7 +236,7 @@ void testSilenceIsMeasuredAgainstAPromise() noexcept {
   attached.childIndex = 1;
   attached.reportIntervalSec = 1;  // A second, so the test can wait for it.
   attached.descriptorRev = 0x9C4A;
-  std::memcpy(attached.mac, macFor(0x44).bytes, HAP_MAC_LEN);
+  idFor(0x44).toMac(attached.mac);
   model.noteChildAttached(HAPPath(), attached);
 
   CHECK(model.find(pathOf(1))->online);
@@ -267,7 +263,7 @@ void testANodeThatPromisedNothingIsNeverCalledDead() noexcept {
   HAPChildAttached attached;
   attached.childIndex = 1;
   attached.reportIntervalSec = 0;
-  std::memcpy(attached.mac, macFor(0x55).bytes, HAP_MAC_LEN);
+  idFor(0x55).toMac(attached.mac);
   model.noteChildAttached(HAPPath(), attached);
 
   HSystemUtils::sleep(100);

@@ -118,7 +118,7 @@ class HAPBinder {
    *
    * @return true when the frame belonged to a handshake and was consumed.
    */
-  bool handle(const HAPMac& from, const HAPFrame& frame) noexcept;
+  bool handle(const HAPAddress& from, const HAPFrame& frame) noexcept;
 
   /**
    * @brief Tells the handshake that a frame has left the radio.
@@ -133,7 +133,7 @@ class HAPBinder {
    * and everything else that wants send results are not fighting over one
    * callback slot.
    */
-  void notifySent(const HAPMac& to, bool delivered) noexcept;
+  void notifySent(const HAPAddress& to, bool delivered) noexcept;
 
   State state() const noexcept;
   bool isListening() const noexcept;
@@ -157,7 +157,7 @@ class HAPBinder {
    * The moment to persist the parent, its index and the link key, because
    * everything after this depends on surviving a reboot.
    */
-  using BoundHook = etl::delegate<void(const HAPMac& parent, uint8_t index,
+  using BoundHook = etl::delegate<void(const HAPAddress& parent, uint8_t index,
                                        const uint8_t* linkKey,
                                        uint8_t channel)>;
   void onBound(BoundHook hook) noexcept;
@@ -175,14 +175,14 @@ class HAPBinder {
   static constexpr size_t kSweepCount = sizeof(kSweepChannels);
 
   bool sendAnnouncement() noexcept;
-  bool sendAccept(const HAPMac& to, uint8_t childIndex) noexcept;
+  bool sendAccept(const HAPAddress& to, uint8_t childIndex) noexcept;
   bool sendConfirm() noexcept;
 
-  bool handleAnnounce(const HAPMac& from, const HAPFrame& frame) noexcept;
-  bool handleAccept(const HAPMac& from, const HAPFrame& frame) noexcept;
-  bool handleConfirm(const HAPMac& from, const HAPFrame& frame) noexcept;
+  bool handleAnnounce(const HAPAddress& from, const HAPFrame& frame) noexcept;
+  bool handleAccept(const HAPAddress& from, const HAPFrame& frame) noexcept;
+  bool handleConfirm(const HAPAddress& from, const HAPFrame& frame) noexcept;
 
-  bool transmit(const HAPMac& to, HAPMessage type, uint8_t flags,
+  bool transmit(const HAPAddress& to, HAPMessage type, uint8_t flags,
                 const uint8_t* payload, size_t size) noexcept;
 
   void abandonAccept() noexcept;
@@ -203,7 +203,7 @@ class HAPBinder {
   uint8_t homeChannel_ = 0;  ///< Where a sweep started, to go back to.
 
   /** Master: who was accepted, and as which child, until they confirm. */
-  HAPMac pending_;
+  HAPAddress pending_;
   uint8_t pendingIndex_ = 0;
   uint8_t pendingCapabilities_ = HAPCaps::None;
   HAPDeviceType pendingType_ = HAPDeviceType::Sensor;

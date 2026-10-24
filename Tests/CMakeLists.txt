@@ -52,6 +52,7 @@ add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/.." HAPLib)
 add_executable(haptests
     "HAPTest.cpp"
     "HAPPathTest.cpp"
+    "HAPAddressTest.cpp"
     "HAPCodecTest.cpp"
     "HAPFrameTest.cpp"
     "HAPMessagesTest.cpp"

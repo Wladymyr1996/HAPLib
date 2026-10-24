@@ -50,7 +50,7 @@ bool HAPBinder::isListening() const noexcept {
   return state_ == State::Listening || state_ == State::Accepting;
 }
 
-bool HAPBinder::handleAnnounce(const HAPMac& from,
+bool HAPBinder::handleAnnounce(const HAPAddress& from,
                                const HAPFrame& frame) noexcept {
   if (state_ != State::Listening) {
     return false;
@@ -84,7 +84,7 @@ bool HAPBinder::handleAnnounce(const HAPMac& from,
   // anything a master has cached name a child by its index, and a device that
   // came back as 1.3 instead of 1.2 would break every one of them silently -
   // which is the same failure B8 exists to prevent.
-  const HAPChild* returning = router_.childByMac(from);
+  const HAPChild* returning = router_.childById(from.nodeId());
   uint8_t index = 0;
 
   if (returning != nullptr) {
@@ -144,7 +144,7 @@ bool HAPBinder::handleAnnounce(const HAPMac& from,
   return true;
 }
 
-bool HAPBinder::sendAccept(const HAPMac& to, uint8_t childIndex) noexcept {
+bool HAPBinder::sendAccept(const HAPAddress& to, uint8_t childIndex) noexcept {
   HAPRandom::fill(linkKey_, sizeof(linkKey_));
 
   // Added WITHOUT the key: this frame carries it, so it has to be readable by
@@ -172,7 +172,7 @@ bool HAPBinder::sendAccept(const HAPMac& to, uint8_t childIndex) noexcept {
                   writer.size());
 }
 
-bool HAPBinder::handleConfirm(const HAPMac& from,
+bool HAPBinder::handleConfirm(const HAPAddress& from,
                               const HAPFrame& frame) noexcept {
   if (state_ != State::Accepting || from != pending_) {
     return false;
@@ -184,7 +184,7 @@ bool HAPBinder::handleConfirm(const HAPMac& from,
 
   HAPChild child;
   child.index = pendingIndex_;
-  child.mac = pending_;
+  child.id = pending_.nodeId();
   child.deviceType = pendingType_;
   child.capabilities = pendingCapabilities_;
   child.descriptorRev = confirm.descriptorRev != 0 ? confirm.descriptorRev
@@ -206,7 +206,7 @@ bool HAPBinder::handleConfirm(const HAPMac& from,
   // earlier - see handleAnnounce(). addChild() refuses a MAC it already holds,
   // so without this a re-adoption would fail at the last step and take the
   // working child with it.
-  const HAPChild* stale = router_.childByMac(child.mac);
+  const HAPChild* stale = router_.childById(child.id);
   if (stale != nullptr) {
     router_.removeChild(stale->index);
   }
@@ -221,7 +221,7 @@ bool HAPBinder::handleConfirm(const HAPMac& from,
   window_.stop();
   state_ = State::Idle;
 
-  HInfo("bound %s as child %u", child.mac.toString().c_str(), child.index);
+  HInfo("bound %s as child %u", child.id.toString().c_str(), child.index);
 
   if (onChildBound_.is_valid()) {
     onChildBound_(child);
@@ -242,7 +242,7 @@ void HAPBinder::switchToEncrypted() noexcept {
   keySwitched_ = true;
 }
 
-void HAPBinder::notifySent(const HAPMac& to, bool delivered) noexcept {
+void HAPBinder::notifySent(const HAPAddress& to, bool delivered) noexcept {
   if (state_ != State::Accepting || to != pending_) {
     return;
   }
@@ -264,7 +264,7 @@ void HAPBinder::abandonAccept() noexcept {
     // Everything given out is taken back. A peer left behind would occupy one
     // of six encrypted slots for a device that never finished binding.
     transport_.removePeer(pending_);
-    pending_ = HAPMac::zero();
+    pending_ = HAPAddress::zero();
   }
 
   pendingIndex_ = 0;
@@ -280,7 +280,7 @@ bool HAPBinder::announce() noexcept {
   if (router_.hasParent()) {
     // One parent, for life. An accidental rebind would silently detach a
     // subtree, so only a factory reset can free this node.
-    HWarning("already bound to %s", router_.parentMac().toString().c_str());
+    HWarning("already bound to %s", router_.parentId().toString().c_str());
     return false;
   }
 
@@ -350,7 +350,7 @@ bool HAPBinder::sendAnnouncement() noexcept {
   return size > 0 && transport_.broadcast(buffer, size);
 }
 
-bool HAPBinder::handleAccept(const HAPMac& from, const HAPFrame& frame) noexcept {
+bool HAPBinder::handleAccept(const HAPAddress& from, const HAPFrame& frame) noexcept {
   if (state_ != State::Announcing) {
     return false;
   }
@@ -382,7 +382,7 @@ bool HAPBinder::handleAccept(const HAPMac& from, const HAPFrame& frame) noexcept
     return true;
   }
 
-  router_.setParent(from, accept.childIndex);
+  router_.setParent(from.nodeId(), accept.childIndex);
 
   // Encrypted, with the key that just arrived - so that it decrypts at all is
   // the proof the key survived the trip.
@@ -416,15 +416,17 @@ bool HAPBinder::sendConfirm() noexcept {
   HAPWriter writer(payload, sizeof(payload));
   confirm.encode(writer);
 
-  return writer.ok() && transmit(router_.parentMac(), HAPMessage::BindConfirm,
-                                 HAPFlags::Upstream, payload, writer.size());
+  return writer.ok() &&
+         transmit(HAPAddress::fromNodeId(router_.parentId()),
+                  HAPMessage::BindConfirm, HAPFlags::Upstream, payload,
+                  writer.size());
 }
 
 // ---------------------------------------------------------------------------
 // Shared
 // ---------------------------------------------------------------------------
 
-bool HAPBinder::transmit(const HAPMac& to, HAPMessage type, uint8_t flags,
+bool HAPBinder::transmit(const HAPAddress& to, HAPMessage type, uint8_t flags,
                          const uint8_t* payload, size_t size) noexcept {
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(type);
@@ -439,7 +441,7 @@ bool HAPBinder::transmit(const HAPMac& to, HAPMessage type, uint8_t flags,
   return encoded > 0 && transport_.send(to, buffer, encoded);
 }
 
-bool HAPBinder::handle(const HAPMac& from, const HAPFrame& frame) noexcept {
+bool HAPBinder::handle(const HAPAddress& from, const HAPFrame& frame) noexcept {
   switch (frame.message()) {
     case HAPMessage::BindAnnounce:
       return handleAnnounce(from, frame);

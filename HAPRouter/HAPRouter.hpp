@@ -1,7 +1,7 @@
 #pragma once
 
 #include <HAPFrame/HAPFrame.hpp>
-#include <HAPMac/HAPMac.hpp>
+#include <HAPNodeId/HAPNodeId.hpp>
 
 #include <etl/vector.h>
 
@@ -11,7 +11,7 @@ struct HAPChild {
   uint8_t index = 0;
 
   /** Its permanent identity, which outlives any index it is given. */
-  HAPMac mac;
+  HAPNodeId id;
 
   HAPDeviceType deviceType = HAPDeviceType::Sensor;
 
@@ -97,7 +97,7 @@ struct HAPRoute {
 class HAPRouter {
  public:
   /** @brief Records the parent, and the index this node was given there. */
-  void setParent(const HAPMac& mac, uint8_t indexAtParent) noexcept;
+  void setParent(const HAPNodeId& id, uint8_t indexAtParent) noexcept;
 
   /** @brief Forgets it - a factory reset, and the only way to change parent. */
   void clearParent() noexcept;
@@ -107,7 +107,7 @@ class HAPRouter {
   /** @brief True when nothing is above this node: it is the root. */
   bool isRoot() const noexcept;
 
-  const HAPMac& parentMac() const noexcept;
+  const HAPNodeId& parentId() const noexcept;
 
   /** @brief What this node is called by its parent. 0 when unbound. */
   uint8_t indexAtParent() const noexcept;
@@ -150,7 +150,7 @@ class HAPRouter {
 
   /** @return nullptr when there is no such child. */
   const HAPChild* child(uint8_t index) const noexcept;
-  const HAPChild* childByMac(const HAPMac& mac) const noexcept;
+  const HAPChild* childById(const HAPNodeId& id) const noexcept;
 
   /** @brief For iteration; `position` is not an index. */
   const HAPChild* childAt(size_t position) const noexcept;
@@ -166,7 +166,7 @@ class HAPRouter {
   bool setChildReportInterval(uint8_t index, uint16_t seconds) noexcept;
 
   /** @brief True when the address is the parent or a known child. */
-  bool isKnown(const HAPMac& mac) const noexcept;
+  bool isKnown(const HAPNodeId& id) const noexcept;
 
   /**
    * @brief Decides what happens to a received frame, and rewrites its paths.
@@ -176,7 +176,7 @@ class HAPRouter {
    *        comes back is ready to encode and send as it stands.
    * @param from The sender's address.
    */
-  HAPRoute route(HAPFrame& frame, const HAPMac& from) const noexcept;
+  HAPRoute route(HAPFrame& frame, const HAPNodeId& from) const noexcept;
 
   /**
    * @brief The downstream step alone, for a frame this node is ORIGINATING.
@@ -190,7 +190,7 @@ class HAPRouter {
  private:
   etl::vector<HAPChild, HAP_MAX_CHILDREN> children_;
 
-  HAPMac parentMac_;
+  HAPNodeId parentId_;
   uint8_t indexAtParent_ = 0;
   bool hasParent_ = false;
 };

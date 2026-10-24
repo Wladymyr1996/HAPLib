@@ -224,15 +224,15 @@ HAPRemoteNode* HAPModel::noteChildAttached(
   }
 
   // ChildAttached carries a bare six bytes; everything above the wire works in
-  // addresses that can be compared and printed.
-  const HAPMac mac = HAPMac::fromBytes(attached.mac);
+  // ids that can be compared and printed.
+  const HAPNodeId id = HAPNodeId::fromMac(attached.mac);
 
   // The same device at a different path is one node re-bound elsewhere, not a
   // second node. Keeping both would show one thing twice, and a link pointing
   // at the old address would keep failing silently.
-  const HAPRemoteNode* previous = findByMac(mac);
+  const HAPRemoteNode* previous = findById(id);
   if (previous != nullptr && previous->path != path) {
-    HInfo("%s moved from %s to %s", mac.toString().c_str(),
+    HInfo("%s moved from %s to %s", id.toString().c_str(),
           previous->path.toString().c_str(), path.toString().c_str());
     forget(previous->path);
   }
@@ -243,7 +243,7 @@ HAPRemoteNode* HAPModel::noteChildAttached(
     return nullptr;
   }
 
-  node->mac = mac;
+  node->id = id;
   node->deviceType = attached.deviceType;
   node->capabilities = attached.capabilities;
   node->reportIntervalSec = attached.reportIntervalSec;
@@ -253,7 +253,7 @@ HAPRemoteNode* HAPModel::noteChildAttached(
   return node;
 }
 
-HAPRemoteNode* HAPModel::restore(const HAPPath& path, const HAPMac& mac,
+HAPRemoteNode* HAPModel::restore(const HAPPath& path, const HAPNodeId& id,
                                  HAPDeviceType deviceType, uint8_t capabilities,
                                  uint16_t reportIntervalSec) noexcept {
   bool isNew = false;
@@ -262,7 +262,7 @@ HAPRemoteNode* HAPModel::restore(const HAPPath& path, const HAPMac& mac,
     return nullptr;
   }
 
-  node->mac = mac;
+  node->id = id;
   node->deviceType = deviceType;
   node->capabilities = capabilities;
   node->reportIntervalSec = reportIntervalSec;
@@ -301,15 +301,15 @@ const HAPRemoteNode* HAPModel::find(const HAPPath& path) const noexcept {
   return nullptr;
 }
 
-const HAPRemoteNode* HAPModel::findByMac(const HAPMac& mac) const noexcept {
-  if (mac.isZero()) {
+const HAPRemoteNode* HAPModel::findById(const HAPNodeId& id) const noexcept {
+  if (id.isZero()) {
     // Every node starts with a zero address, so matching on one would return
     // whichever has not been described yet.
     return nullptr;
   }
 
   for (const HAPRemoteNode& node : nodes_) {
-    if (node.mac == mac) {
+    if (node.id == id) {
       return &node;
     }
   }

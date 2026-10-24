@@ -65,13 +65,13 @@ class HAPEspNow : public HAPITransport {
   bool begin(uint8_t channel) override;
 
   uint8_t channel() const noexcept override;
-  const HAPMac& localMac() const noexcept override;
+  const HAPNodeId& localId() const noexcept override;
 
-  bool addPeer(const HAPMac& mac, const uint8_t* key) override;
-  bool removePeer(const HAPMac& mac) override;
-  bool hasPeer(const HAPMac& mac) const noexcept override;
+  bool addPeer(const HAPAddress& address, const uint8_t* key) override;
+  bool removePeer(const HAPAddress& address) override;
+  bool hasPeer(const HAPAddress& address) const noexcept override;
 
-  bool send(const HAPMac& mac, const uint8_t* data, size_t size) override;
+  bool send(const HAPAddress& to, const uint8_t* data, size_t size) override;
   bool broadcast(const uint8_t* data, size_t size) override;
   void onReceive(Receiver receiver) override;
   void onSendResult(SendResult result) override;
@@ -122,22 +122,22 @@ class HAPEspNow : public HAPITransport {
 
  private:
   struct Entry {
-    HAPMac from;
+    HAPAddress from;
     int8_t rssi = 0;
     uint8_t size = 0;
     uint8_t data[HAP_MAX_FRAME_SIZE] = {};
   };
 
-  bool addEspNowPeer(const HAPMac& mac, const uint8_t* key) noexcept;
+  bool addEspNowPeer(const HAPAddress& address, const uint8_t* key) noexcept;
 
-  HAPMac mac_;
+  HAPNodeId id_;
   Receiver receiver_;
   SendResult sendResult_;
   uint8_t channel_ = 0;
   bool started_ = false;
 
   /** Mirrors the radio's peer table so hasPeer() costs nothing. */
-  etl::vector<HAPMac, HAP_MAX_CHILDREN + 2> peers_;
+  etl::vector<HAPAddress, HAP_MAX_CHILDREN + 2> peers_;
 
   // Written by the Wi-Fi task, read by ours. Small enough that the lock is held
   // for a memcpy and nothing else.

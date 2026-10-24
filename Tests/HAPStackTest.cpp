@@ -24,13 +24,9 @@
 
 namespace {
 
-HAPMac macFor(uint8_t id) noexcept {
-  HAPMac mac;
-  mac.bytes[0] = 0x24;
-  mac.bytes[1] = 0x6F;
-  mac.bytes[2] = 0x28;
-  mac.bytes[5] = id;
-  return mac;
+HAPNodeId idFor(uint8_t id) noexcept {
+  const uint8_t mac[HAP_MAC_LEN] = {0x24, 0x6F, 0x28, 0x00, 0x00, id};
+  return HAPNodeId::fromMac(mac);
 }
 
 HAPPath pathOf(uint8_t a, uint8_t b = 0) noexcept {
@@ -49,7 +45,7 @@ class Device {
  public:
   Device(uint8_t id, HAPLoopbackBus& bus, HAPDeviceType type,
          uint8_t capabilities, const char* name, uint16_t intervalSec) noexcept
-      : mac_(macFor(id)), radio_(mac_, bus), stack_(radio_, node_) {
+      : id_(idFor(id)), radio_(id_, bus), stack_(radio_, node_) {
     node_.begin(type, capabilities, HAPName(name));
     node_.setReportIntervalSec(intervalSec);
   }
@@ -57,13 +53,14 @@ class Device {
   HAPStack& stack() noexcept { return stack_; }
   HAPNode& node() noexcept { return node_; }
   HAPLoopback& radio() noexcept { return radio_; }
-  const HAPMac& mac() const noexcept { return mac_; }
+  const HAPNodeId& id() const noexcept { return id_; }
+  HAPAddress address() const noexcept { return HAPAddress::fromNodeId(id_); }
 
   void useModel() noexcept { stack_.setModel(model_); }
   HAPModel& model() noexcept { return model_; }
 
  private:
-  HAPMac mac_;
+  HAPNodeId id_;
   HAPLoopback radio_;
   HAPNode node_;
   HAPModel model_;
@@ -143,7 +140,7 @@ void testABoundPairReportsByItself() noexcept {
   // The master heard of it at bind time, from ChildAttached, so it knows the
   // interval before the first report rather than after it.
   CHECK(known->reportIntervalSec == 1);
-  CHECK(known->mac == slave.mac());
+  CHECK(known->id == slave.id());
 
   // And it knows it does not yet know what the node IS.
   CHECK(known->needsDescribe());
@@ -343,7 +340,7 @@ void testABindSurvivesARestart() noexcept {
 
   // Bound on the way up, with no handshake and nobody pressing anything.
   CHECK(sensor.stack().isBound());
-  CHECK(sensor.stack().router().parentMac() == macFor(1));
+  CHECK(sensor.stack().router().parentId() == idFor(1));
   CHECK(sensor.stack().router().indexAtParent() == 1);
 
   // And it will not announce again: one parent, for life.
@@ -406,7 +403,7 @@ void testAMasterThatRebootsCanStillHearItsChildren() noexcept {
   const HAPRemoteNode* restored = master.model().find(pathOf(1));
   REQUIRE(restored != nullptr);
   CHECK(restored->reportIntervalSec == 1);
-  CHECK(restored->mac == sensor.mac());
+  CHECK(restored->id == sensor.id());
   CHECK(restored->capabilities == HAPCaps::None);
 
 
@@ -502,7 +499,7 @@ void testAResetDeviceCanRejoinTheParentThatStillListsIt() noexcept {
   CHECK(bindPair(bus, master, sensor));
   CHECK(master.stack().router().childCount() == 2);
 
-  const HAPChild* before = master.stack().router().childByMac(sensor.mac());
+  const HAPChild* before = master.stack().router().childById(sensor.id());
   REQUIRE(before != nullptr);
   const uint8_t wasIndex = before->index;
 
@@ -516,14 +513,14 @@ void testAResetDeviceCanRejoinTheParentThatStillListsIt() noexcept {
   // Re-adopted, not duplicated, and not at the cost of the other child.
   CHECK(master.stack().router().childCount() == 2);
 
-  const HAPChild* after = master.stack().router().childByMac(sensor.mac());
+  const HAPChild* after = master.stack().router().childById(sensor.id());
   REQUIRE(after != nullptr);
 
   // THE SAME INDEX. Links, paths and anything a master has cached name a child
   // by index; coming back as a different one breaks every reference silently,
   // which is the failure B8 exists to prevent.
   CHECK(after->index == wasIndex);
-  CHECK(master.stack().router().childByMac(first.mac()) != nullptr);
+  CHECK(master.stack().router().childById(first.id()) != nullptr);
 
   // And the link works: a re-adoption that left the peer keyed with the old
   // key would look exactly like a successful bind and carry nothing.
@@ -581,7 +578,7 @@ void testARebootedMasterStillKnowsItsGrandchildren() noexcept {
 
     const HAPRemoteNode* seen = root.model().find(pathOf(1, 1));
     REQUIRE(seen != nullptr);
-    CHECK(seen->mac == leaf.mac());
+    CHECK(seen->id == leaf.id());
   }
 
   // The root lost power; the tree below it did not. One process, one HAPStore -
@@ -606,7 +603,7 @@ void testARebootedMasterStillKnowsItsGrandchildren() noexcept {
 
   const HAPRemoteNode* known = root.model().find(pathOf(1, 1));
   REQUIRE(known != nullptr);
-  CHECK(known->mac == leaf.mac());
+  CHECK(known->id == leaf.id());
   CHECK(known->reportIntervalSec == 1);
 
   // And what was NOT stored is honestly absent: the descriptor is a cache, and
@@ -678,7 +675,7 @@ void testAThreeNodeChain() noexcept {
   // computed - the ChildAttached climbed and accumulated its own hop.
   const HAPRemoteNode* known = root.model().find(pathOf(1, 1));
   REQUIRE(known != nullptr);
-  CHECK(known->mac == leaf.mac());
+  CHECK(known->id == leaf.id());
   CHECK(known->reportIntervalSec == 1);
 
   // B2: a report from the bottom, two hops, arriving with a path that built
@@ -915,7 +912,7 @@ void testAControllerAdoptedLastStillReportsItsChildren() noexcept {
   // its permanent identity, and what it promised.
   const HAPRemoteNode* known = root.model().find(pathOf(1, 1));
   REQUIRE(known != nullptr);
-  CHECK(known->mac == leaf.mac());
+  CHECK(known->id == leaf.id());
   CHECK(known->reportIntervalSec == 1);
   CHECK(known->capabilities == HAPCaps::None);
 }
@@ -971,7 +968,7 @@ void testALinkAtTheCommonAncestor() noexcept {
 
   // The root goes away, and the loop carries on: the link lives on the middle
   // node and its source is one hop below it.
-  bus.setReachable(root.mac(), middle.mac(), false);
+  bus.setReachable(root.id(), middle.id(), false);
 
   leaf.node().instanceAt(0)->publish(0, HValue(23.0f));
   HSystemUtils::sleep(1100);

@@ -15,6 +15,7 @@
 
 set(HAPLIB_SRCS
     "HAP.cpp"
+    "HAPAddress/HAPAddress.cpp"
     "HAPBinder/HAPBinder.cpp"
     "HAPClasses/HAPClasses.cpp"
     "HAPCodec/HAPCodec.cpp"
@@ -24,9 +25,9 @@ set(HAPLIB_SRCS
     "HAPITransport/HAPITransport.cpp"
     "HAPLinks/HAPLinks.cpp"
     "HAPListenWindow/HAPListenWindow.cpp"
-    "HAPMac/HAPMac.cpp"
     "HAPModel/HAPModel.cpp"
     "HAPNode/HAPNode.cpp"
+    "HAPNodeId/HAPNodeId.cpp"
     "HAPQueue/HAPQueue.cpp"
     "HAPRandom/HAPRandom.cpp"
     "HAPReporter/HAPReporter.cpp"

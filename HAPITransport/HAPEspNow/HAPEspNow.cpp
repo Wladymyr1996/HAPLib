@@ -154,18 +154,18 @@ bool HAPEspNow::begin(uint8_t channel) {
     return false;
   }
 
-  mac_ = HAPMac::fromBytes(address);
+  id_ = HAPNodeId::fromMac(address);
   channel_ = channel;
   started_ = true;
 
   // Without this a node can unicast perfectly and never bind, because binding
   // is the one thing that must reach a stranger.
-  if (!addEspNowPeer(HAPMac::broadcast(), nullptr)) {
+  if (!addEspNowPeer(HAPAddress::broadcast(), nullptr)) {
     HCritical("could not add the broadcast peer - binding will never work");
     return false;
   }
 
-  HInfo("up on channel %u as %s", channel, mac_.toString().c_str());
+  HInfo("up on channel %u as %s", channel, id_.toString().c_str());
   return true;
 }
 
@@ -173,8 +173,8 @@ uint8_t HAPEspNow::channel() const noexcept {
   return channel_;
 }
 
-const HAPMac& HAPEspNow::localMac() const noexcept {
-  return mac_;
+const HAPNodeId& HAPEspNow::localId() const noexcept {
+  return id_;
 }
 
 bool HAPEspNow::setChannel(uint8_t channel) {
@@ -203,9 +203,10 @@ bool HAPEspNow::setPrimaryKey(const uint8_t* pmk) noexcept {
   return true;
 }
 
-bool HAPEspNow::addEspNowPeer(const HAPMac& mac, const uint8_t* key) noexcept {
+bool HAPEspNow::addEspNowPeer(const HAPAddress& address,
+                              const uint8_t* key) noexcept {
   esp_now_peer_info_t peer = {};
-  std::memcpy(peer.peer_addr, mac.bytes, HAP_MAC_LEN);
+  address.toMac(peer.peer_addr);
 
   // Zero means "whatever channel the radio is on", which is what keeps a peer
   // table valid across a channel change.
@@ -217,24 +218,24 @@ bool HAPEspNow::addEspNowPeer(const HAPMac& mac, const uint8_t* key) noexcept {
     std::memcpy(peer.lmk, key, HAP_KEY_LEN);
   }
 
-  const bool known = esp_now_is_peer_exist(mac.bytes);
+  const bool known = esp_now_is_peer_exist(address.bytes);
   const esp_err_t error =
       known ? esp_now_mod_peer(&peer) : esp_now_add_peer(&peer);
 
   if (error != ESP_OK) {
     HWarning("%s peer %s failed: %s", known ? "modifying" : "adding",
-             mac.toString().c_str(), esp_err_to_name(error));
+             address.toString().c_str(), esp_err_to_name(error));
     return false;
   }
 
   if (!known && !peers_.full()) {
-    peers_.push_back(mac);
+    peers_.push_back(address);
   }
 
   return true;
 }
 
-bool HAPEspNow::addPeer(const HAPMac& mac, const uint8_t* key) {
+bool HAPEspNow::addPeer(const HAPAddress& address, const uint8_t* key) {
   if (!started_) {
     return false;
   }
@@ -246,21 +247,21 @@ bool HAPEspNow::addPeer(const HAPMac& mac, const uint8_t* key) {
     esp_now_peer_num_t count = {};
     if (esp_now_get_peer_num(&count) == ESP_OK &&
         count.encrypt_num >= ESP_NOW_MAX_ENCRYPT_PEER_NUM &&
-        !esp_now_is_peer_exist(mac.bytes)) {
+        !esp_now_is_peer_exist(address.bytes)) {
       HWarning("no room for another encrypted peer (%d in use)",
                count.encrypt_num);
       return false;
     }
   }
 
-  return addEspNowPeer(mac, key);
+  return addEspNowPeer(address, key);
 }
 
-bool HAPEspNow::removePeer(const HAPMac& mac) {
-  const esp_err_t error = esp_now_del_peer(mac.bytes);
+bool HAPEspNow::removePeer(const HAPAddress& address) {
+  const esp_err_t error = esp_now_del_peer(address.bytes);
 
   for (auto it = peers_.begin(); it != peers_.end(); ++it) {
-    if (*it == mac) {
+    if (*it == address) {
       peers_.erase(it);
       break;
     }
@@ -269,9 +270,9 @@ bool HAPEspNow::removePeer(const HAPMac& mac) {
   return error == ESP_OK;
 }
 
-bool HAPEspNow::hasPeer(const HAPMac& mac) const noexcept {
-  for (const HAPMac& peer : peers_) {
-    if (peer == mac) {
+bool HAPEspNow::hasPeer(const HAPAddress& address) const noexcept {
+  for (const HAPAddress& peer : peers_) {
+    if (peer == address) {
       return true;
     }
   }
@@ -279,17 +280,17 @@ bool HAPEspNow::hasPeer(const HAPMac& mac) const noexcept {
   return false;
 }
 
-bool HAPEspNow::send(const HAPMac& mac, const uint8_t* data, size_t size) {
+bool HAPEspNow::send(const HAPAddress& to, const uint8_t* data, size_t size) {
   if (!started_ || data == nullptr || size == 0 || size > HAP_MAX_FRAME_SIZE) {
     return false;
   }
 
-  const esp_err_t error = esp_now_send(mac.bytes, data, size);
+  const esp_err_t error = esp_now_send(to.bytes, data, size);
 
   if (error != ESP_OK) {
     // ESP_ERR_ESPNOW_NOT_FOUND here means the address is not a peer. It is the
     // commonest mistake in an ESP-NOW network and deserves to be unmissable.
-    HWarning("send to %s failed: %s", mac.toString().c_str(),
+    HWarning("send to %s failed: %s", to.toString().c_str(),
              esp_err_to_name(error));
     return false;
   }
@@ -298,7 +299,7 @@ bool HAPEspNow::send(const HAPMac& mac, const uint8_t* data, size_t size) {
 }
 
 bool HAPEspNow::broadcast(const uint8_t* data, size_t size) {
-  return send(HAPMac::broadcast(), data, size);
+  return send(HAPAddress::broadcast(), data, size);
 }
 
 void HAPEspNow::onReceive(Receiver receiver) {
@@ -322,7 +323,7 @@ void HAPEspNow::handleReceive(const uint8_t* mac, const uint8_t* data, int size,
   }
 
   Entry entry;
-  entry.from = HAPMac::fromBytes(mac);
+  entry.from = HAPAddress::fromMac(mac);
   entry.rssi = rssi;
   entry.size = static_cast<uint8_t>(size);
   std::memcpy(entry.data, data, static_cast<size_t>(size));
@@ -343,7 +344,7 @@ void HAPEspNow::handleSend(const uint8_t* mac, bool delivered) noexcept {
   // exists for one decision - retry, or switch a link's key - and neither needs
   // more than a few instructions.
   if (sendResult_.is_valid()) {
-    sendResult_(HAPMac::fromBytes(mac), delivered);
+    sendResult_(HAPAddress::fromMac(mac), delivered);
   }
 }
 

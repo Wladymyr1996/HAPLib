@@ -19,19 +19,15 @@
 
 namespace {
 
-HAPMac macFor(uint8_t id) noexcept {
-  HAPMac mac;
-  mac.bytes[0] = 0x24;
-  mac.bytes[1] = 0x6F;
-  mac.bytes[2] = 0x28;
-  mac.bytes[5] = id;
-  return mac;
+HAPNodeId idFor(uint8_t id) noexcept {
+  const uint8_t mac[HAP_MAC_LEN] = {0x24, 0x6F, 0x28, 0x00, 0x00, id};
+  return HAPNodeId::fromMac(mac);
 }
 
 HAPBindState makeBind() noexcept {
   HAPBindState state;
   state.bound = true;
-  state.parent = macFor(1);
+  state.parent = idFor(1);
   state.indexAtParent = 2;
   state.channel = 6;
 
@@ -112,7 +108,7 @@ void testChildrenRoundTrip() noexcept {
   for (uint8_t i = 1; i <= 3; ++i) {
     HAPChild child;
     child.index = i;
-    child.mac = macFor(static_cast<uint8_t>(0x10 + i));
+    child.id = idFor(static_cast<uint8_t>(0x10 + i));
     child.capabilities = i == 2 ? HAPCaps::BatteryPowered : HAPCaps::CanBeMaster;
     child.deviceType = i == 2 ? HAPDeviceType::Sensor : HAPDeviceType::Controller;
     child.descriptorRev = static_cast<uint16_t>(0x9C40 + i);
@@ -127,7 +123,7 @@ void testChildrenRoundTrip() noexcept {
 
   const HAPChild* battery = restored.child(2);
   CHECK(battery != nullptr);
-  CHECK(battery->mac == macFor(0x12));
+  CHECK(battery->id == idFor(0x12));
   CHECK(battery->isBatteryPowered());
   CHECK(battery->deviceType == HAPDeviceType::Sensor);
 
@@ -150,7 +146,7 @@ void testAnEmptyChildTableIsWrittenToo() noexcept {
   HAPRouter full;
   HAPChild child;
   child.index = 1;
-  child.mac = macFor(0x20);
+  child.id = idFor(0x20);
   CHECK(full.addChild(child));
   CHECK(HAPStore::saveChildren(full));
 
@@ -251,7 +247,7 @@ void testEverythingTogether() noexcept {
   HAPRouter router;
   HAPChild child;
   child.index = 1;
-  child.mac = macFor(0x30);
+  child.id = idFor(0x30);
   child.capabilities = HAPCaps::BatteryPowered;
   child.descriptorRev = 0x1234;
   CHECK(router.addChild(child));

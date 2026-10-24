@@ -162,8 +162,17 @@ constexpr const char* HAPLibVersion() noexcept {
 /** Length of an ESP-NOW local master key. */
 #define HAP_KEY_LEN 16
 
-/** Length of a MAC address - a node's permanent identity. */
+/**
+ * Length of a MAC address. Still the width of the identity the v1 frames and
+ * the stored state carry; a HAPNodeId is wider and converts to and from it.
+ */
 #define HAP_MAC_LEN 6
+
+/** Length of a node id - an EUI-64, the node's permanent identity. */
+#define HAP_NODE_ID_LEN 8
+
+/** Room for a transport address - an IPv6 address, the widest one in view. */
+#define HAP_ADDRESS_LEN 16
 
 /** Widest text form of a path: "254.254.254.254.254". */
 #define HAP_PATH_TEXT_LEN 19

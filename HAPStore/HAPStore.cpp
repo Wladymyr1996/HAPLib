@@ -106,7 +106,7 @@ bool parseHex(const char* text, size_t length, uint8_t* out,
 }
 
 void writeMirror(const HAPBindState& state) noexcept {
-  std::memcpy(mirror.parent, state.parent.bytes, HAP_MAC_LEN);
+  state.parent.toMac(mirror.parent);
   std::memcpy(mirror.linkKey, state.linkKey, HAP_KEY_LEN);
   mirror.indexAtParent = state.indexAtParent;
   mirror.channel = state.channel;
@@ -115,7 +115,7 @@ void writeMirror(const HAPBindState& state) noexcept {
 }
 
 void readMirror(HAPBindState& state) noexcept {
-  state.parent = HAPMac::fromBytes(mirror.parent);
+  state.parent = HAPNodeId::fromMac(mirror.parent);
   std::memcpy(state.linkKey, mirror.linkKey, HAP_KEY_LEN);
   state.indexAtParent = mirror.indexAtParent;
   state.channel = mirror.channel;
@@ -160,7 +160,7 @@ bool HAPStore::loadBind(HAPBindState& state) noexcept {
     return false;
   }
 
-  state.parent = HAPMac::fromBytes(link_);
+  state.parent = HAPNodeId::fromMac(link_);
   state.indexAtParent = link_[HAP_MAC_LEN];
   state.channel = link_[HAP_MAC_LEN + 1];
   std::memcpy(state.linkKey, linkKey, sizeof(linkKey));
@@ -183,7 +183,7 @@ bool HAPStore::saveBind(const HAPBindState& state) noexcept {
   }
 
   uint8_t packed[HAP_MAC_LEN + 2] = {};
-  std::memcpy(packed, state.parent.bytes, HAP_MAC_LEN);
+  state.parent.toMac(packed);
   packed[HAP_MAC_LEN] = state.indexAtParent;
   packed[HAP_MAC_LEN + 1] = state.channel;
 
@@ -248,7 +248,7 @@ size_t HAPStore::loadChildren(HAPRouter& router) noexcept {
 
     HAPChild child;
     child.index = bytes[0];
-    child.mac = HAPMac::fromBytes(bytes + 1);
+    child.id = HAPNodeId::fromMac(bytes + 1);
     child.capabilities = bytes[HAP_MAC_LEN + 1];
     child.deviceType = static_cast<HAPDeviceType>(bytes[HAP_MAC_LEN + 2]);
     child.reportIntervalSec = static_cast<uint16_t>(
@@ -299,7 +299,7 @@ bool HAPStore::saveChildren(const HAPRouter& router) noexcept {
 
     uint8_t bytes[HAP_MAC_LEN + 7] = {};
     bytes[0] = child->index;
-    std::memcpy(bytes + 1, child->mac.bytes, HAP_MAC_LEN);
+    child->id.toMac(bytes + 1);
     bytes[HAP_MAC_LEN + 1] = child->capabilities;
     bytes[HAP_MAC_LEN + 2] = static_cast<uint8_t>(child->deviceType);
     bytes[HAP_MAC_LEN + 3] = static_cast<uint8_t>(child->reportIntervalSec >> 8);
@@ -444,14 +444,14 @@ bool HAPStore::saveModel(const HAPModel& model) noexcept {
     // A node nobody has named is not worth keeping: it was built from reports
     // alone, so writing it would preserve exactly the blank entry this file
     // exists to prevent.
-    if (node->mac.isZero()) {
+    if (node->id.isZero()) {
       continue;
     }
 
     uint8_t bytes[kModelRecordSize] = {};
     bytes[0] = node->path.length();
     std::memcpy(bytes + 1, node->path.bytes(), HAP_MAX_DEPTH);
-    std::memcpy(bytes + 1 + HAP_MAX_DEPTH, node->mac.bytes, HAP_MAC_LEN);
+    node->id.toMac(bytes + 1 + HAP_MAX_DEPTH);
 
     uint8_t* tail = bytes + 1 + HAP_MAX_DEPTH + HAP_MAC_LEN;
     tail[0] = node->capabilities;
@@ -512,7 +512,7 @@ size_t HAPStore::loadModel(HAPModel& model) noexcept {
     const uint16_t interval =
         static_cast<uint16_t>((static_cast<uint16_t>(tail[2]) << 8) | tail[3]);
 
-    if (model.restore(nodePath, HAPMac::fromBytes(bytes + 1 + HAP_MAX_DEPTH),
+    if (model.restore(nodePath, HAPNodeId::fromMac(bytes + 1 + HAP_MAX_DEPTH),
                       static_cast<HAPDeviceType>(tail[1]), tail[0],
                       interval) != nullptr) {
       ++restored;

@@ -134,6 +134,7 @@ int report() noexcept {
 
 int main() {
   runPathTests();
+  runAddressTests();
   runCodecTests();
   runFrameTests();
   runMessageTests();

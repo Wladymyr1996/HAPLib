@@ -373,35 +373,38 @@ void testTheLoopSurvivesTheRootGoingAway() noexcept {
   // lives and the gateway steps out of the way.
   HAPLoopbackBus bus;
 
-  HAPMac gatewayMac;
-  gatewayMac.bytes[5] = 1;
-  HAPMac controllerMac;
-  controllerMac.bytes[5] = 2;
-  HAPMac thermometerMac;
-  thermometerMac.bytes[5] = 3;
+  const uint8_t gatewayMac[HAP_MAC_LEN] = {0, 0, 0, 0, 0, 1};
+  const uint8_t controllerMac[HAP_MAC_LEN] = {0, 0, 0, 0, 0, 2};
+  const uint8_t thermometerMac[HAP_MAC_LEN] = {0, 0, 0, 0, 0, 3};
+  const HAPNodeId gatewayId = HAPNodeId::fromMac(gatewayMac);
+  const HAPNodeId controllerId = HAPNodeId::fromMac(controllerMac);
+  const HAPNodeId thermometerId = HAPNodeId::fromMac(thermometerMac);
+  const HAPAddress gatewayAddress = HAPAddress::fromMac(gatewayMac);
+  const HAPAddress controllerAddress = HAPAddress::fromMac(controllerMac);
+  const HAPAddress thermometerAddress = HAPAddress::fromMac(thermometerMac);
 
-  HAPLoopback gatewayRadio(gatewayMac, bus);
-  HAPLoopback controllerRadio(controllerMac, bus);
-  HAPLoopback thermometerRadio(thermometerMac, bus);
+  HAPLoopback gatewayRadio(gatewayId, bus);
+  HAPLoopback controllerRadio(controllerId, bus);
+  HAPLoopback thermometerRadio(thermometerId, bus);
 
   gatewayRadio.begin(1);
   controllerRadio.begin(1);
   thermometerRadio.begin(1);
 
-  gatewayRadio.addPeer(controllerMac, nullptr);
-  controllerRadio.addPeer(gatewayMac, nullptr);
-  controllerRadio.addPeer(thermometerMac, nullptr);
-  thermometerRadio.addPeer(controllerMac, nullptr);
+  gatewayRadio.addPeer(controllerAddress, nullptr);
+  controllerRadio.addPeer(gatewayAddress, nullptr);
+  controllerRadio.addPeer(thermometerAddress, nullptr);
+  thermometerRadio.addPeer(controllerAddress, nullptr);
 
   HAPNode controllerNode;
   fillController(controllerNode);
 
   HAPRouter controllerRouter;
-  controllerRouter.setParent(gatewayMac, 1);
+  controllerRouter.setParent(gatewayId, 1);
 
   HAPChild child;
   child.index = 1;
-  child.mac = thermometerMac;
+  child.id = thermometerId;
   child.capabilities = HAPCaps::BatteryPowered;
   CHECK(controllerRouter.addChild(child));
 
@@ -446,14 +449,14 @@ void testTheLoopSurvivesTheRootGoingAway() noexcept {
 
   uint8_t wire[HAP_MAX_FRAME_SIZE];
   const size_t size = frame.encode(wire, sizeof(wire));
-  CHECK(thermometerRadio.send(controllerMac, wire, size));
+  CHECK(thermometerRadio.send(controllerAddress, wire, size));
   bus.pump();
 
   // At the controller: decode, route, and the source path becomes the downward
   // path from here - which is exactly what the link stored.
   HAPFrame arrived;
   CHECK(HAPFrame::decode(wire, size, arrived) == HAPFrameError::None);
-  const HAPRoute route = controllerRouter.route(arrived, thermometerMac);
+  const HAPRoute route = controllerRouter.route(arrived, thermometerId);
   CHECK(route.action == HAPRouteAction::ToParent);
   CHECK(arrived.src == pathOf(1));
 
@@ -468,13 +471,13 @@ void testTheLoopSurvivesTheRootGoingAway() noexcept {
   // A tap, not a diversion: the report still climbs to the gateway.
   uint8_t upward[HAP_MAX_FRAME_SIZE];
   const size_t upwardSize = arrived.encode(upward, sizeof(upward));
-  CHECK(controllerRadio.send(gatewayMac, upward, upwardSize));
+  CHECK(controllerRadio.send(gatewayAddress, upward, upwardSize));
   bus.pump();
   CHECK(gatewayRadio.receivedCount() == 1);
 
   // Now the gateway loses power, and the loop carries on: the link lives here,
   // its source is one hop away, and nothing above was ever involved.
-  bus.setReachable(gatewayMac, controllerMac, false);
+  bus.setReachable(gatewayId, controllerId, false);
 
   HAPReport later;
   later.entries.push_back(HAPValueEntry(kThermometer, 0, 0, HValue(22.5f)));

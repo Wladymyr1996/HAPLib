@@ -32,18 +32,14 @@ constexpr uint8_t kThermometerIndex = 2;
 constexpr uint8_t kLampIndex = 4;
 constexpr uint8_t kChannel = 1;
 
-HAPMac macFor(uint8_t id) noexcept {
-  HAPMac mac;
-  mac.bytes[0] = 0x24;
-  mac.bytes[1] = 0x6F;
-  mac.bytes[2] = 0x28;
-  mac.bytes[5] = id;
-  return mac;
+HAPNodeId idFor(uint8_t id) noexcept {
+  const uint8_t mac[HAP_MAC_LEN] = {0x24, 0x6F, 0x28, 0x00, 0x00, id};
+  return HAPNodeId::fromMac(mac);
 }
 
 /** One frame a node has been handed, kept whole so a test can inspect it. */
 struct ReceivedFrame {
-  HAPMac from;
+  HAPNodeId from;
   uint8_t bytes[HAP_MAX_FRAME_SIZE] = {};
   size_t size = 0;
 };
@@ -58,28 +54,29 @@ struct ReceivedFrame {
 class TestNode {
  public:
   TestNode(uint8_t id, HAPLoopbackBus& bus) noexcept
-      : mac_(macFor(id)), transport_(mac_, bus) {
+      : id_(idFor(id)), transport_(id_, bus) {
     transport_.begin(kChannel);
     transport_.onReceive(
         HAPITransport::Receiver::create<TestNode, &TestNode::onFrame>(*this));
   }
 
   HAPRouter& router() noexcept { return router_; }
-  const HAPMac& mac() const noexcept { return mac_; }
+  const HAPNodeId& id() const noexcept { return id_; }
+  HAPAddress address() const noexcept { return HAPAddress::fromNodeId(id_); }
   HAPLoopback& transport() noexcept { return transport_; }
 
   /** @brief Adds a child, both to the routing table and to the radio. */
   void adopt(uint8_t index, TestNode& child, uint8_t capabilities = HAPCaps::None) noexcept {
     HAPChild record;
     record.index = index;
-    record.mac = child.mac();
+    record.id = child.id();
     record.capabilities = capabilities;
 
     router_.addChild(record);
-    transport_.addPeer(child.mac(), nullptr);
+    transport_.addPeer(child.address(), nullptr);
 
-    child.router().setParent(mac_, index);
-    child.transport().addPeer(mac_, nullptr);
+    child.router().setParent(id_, index);
+    child.transport().addPeer(address(), nullptr);
   }
 
   /** @brief Sends a frame this node is originating. */
@@ -89,13 +86,13 @@ class TestNode {
         return false;
       }
 
-      return transmit(router_.parentMac(), frame);
+      return transmit(router_.parentId(), frame);
     }
 
     const HAPRoute route = router_.resolveDownstream(frame);
     if (route.action == HAPRouteAction::ToChild) {
       const HAPChild* child = router_.child(route.childIndex);
-      return child != nullptr && transmit(child->mac, frame);
+      return child != nullptr && transmit(child->id, frame);
     }
 
     return false;
@@ -115,13 +112,13 @@ class TestNode {
   }
 
  private:
-  void onFrame(const HAPMac& from, const uint8_t* data, size_t size) noexcept {
+  void onFrame(const HAPAddress& from, const uint8_t* data, size_t size) noexcept {
     HAPFrame frame;
     if (HAPFrame::decode(data, size, frame) != HAPFrameError::None) {
       return;
     }
 
-    const HAPRoute route = router_.route(frame, from);
+    const HAPRoute route = router_.route(frame, from.nodeId());
 
     switch (route.action) {
       case HAPRouteAction::Deliver: {
@@ -129,7 +126,7 @@ class TestNode {
         // of a decoded frame is a VIEW, and that buffer is gone the moment this
         // callback returns.
         ReceivedFrame record;
-        record.from = from;
+        record.from = from.nodeId();
         record.size = frame.encode(record.bytes, sizeof(record.bytes));
         if (!delivered_.full()) {
           delivered_.push_back(record);
@@ -138,13 +135,13 @@ class TestNode {
       }
 
       case HAPRouteAction::ToParent:
-        transmit(router_.parentMac(), frame);
+        transmit(router_.parentId(), frame);
         break;
 
       case HAPRouteAction::ToChild: {
         const HAPChild* child = router_.child(route.childIndex);
         if (child != nullptr) {
-          transmit(child->mac, frame);
+          transmit(child->id, frame);
         }
         break;
       }
@@ -157,14 +154,14 @@ class TestNode {
     }
   }
 
-  bool transmit(const HAPMac& to, const HAPFrame& frame) noexcept {
+  bool transmit(const HAPNodeId& to, const HAPFrame& frame) noexcept {
     uint8_t buffer[HAP_MAX_FRAME_SIZE];
     const size_t size = frame.encode(buffer, sizeof(buffer));
 
-    return size > 0 && transport_.send(to, buffer, size);
+    return size > 0 && transport_.send(HAPAddress::fromNodeId(to), buffer, size);
   }
 
-  HAPMac mac_;
+  HAPNodeId id_;
   HAPLoopback transport_;
   HAPRouter router_;
 
@@ -317,8 +314,8 @@ void testADeadNodeHidesItsSubtree() noexcept {
   Tree tree;
 
   // The controller loses power. There is no second way in to anything under it.
-  tree.bus.setReachable(tree.gateway.mac(), tree.controller.mac(), false);
-  tree.bus.setReachable(tree.controller.mac(), tree.thermometer.mac(), false);
+  tree.bus.setReachable(tree.gateway.id(), tree.controller.id(), false);
+  tree.bus.setReachable(tree.controller.id(), tree.thermometer.id(), false);
 
   const uint8_t hops[] = {kControllerIndex, kThermometerIndex};
 
@@ -373,7 +370,7 @@ void testTheOtherBranchIsUndisturbed() noexcept {
   Tree tree;
 
   // The lamp goes away; the thermometer under the same parent must not care.
-  tree.bus.setReachable(tree.controller.mac(), tree.lamp.mac(), false);
+  tree.bus.setReachable(tree.controller.id(), tree.lamp.id(), false);
 
   uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
   const size_t payloadSize = buildReport(payload, sizeof(payload), 19.0f);
@@ -395,14 +392,14 @@ void testAStrangerIsIgnored() noexcept {
 
   // It can transmit - the radio has no opinion - but it is nobody's parent and
   // nobody's child, so the frame goes no further than the router.
-  intruder.transport().addPeer(tree.controller.mac(), nullptr);
+  intruder.transport().addPeer(tree.controller.address(), nullptr);
 
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(HAPMessage::ReadRequest);
 
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size = frame.encode(buffer, sizeof(buffer));
-  CHECK(intruder.transport().send(tree.controller.mac(), buffer, size));
+  CHECK(intruder.transport().send(tree.controller.address(), buffer, size));
 
   CHECK(tree.bus.pumpAll() > 0);
   CHECK(tree.controller.delivered().empty());
@@ -419,8 +416,8 @@ void testARadioWillNotTalkToAStranger() noexcept {
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size = frame.encode(buffer, sizeof(buffer));
 
-  CHECK(!tree.gateway.transport().send(tree.thermometer.mac(), buffer, size));
-  CHECK(tree.gateway.transport().send(tree.controller.mac(), buffer, size));
+  CHECK(!tree.gateway.transport().send(tree.thermometer.address(), buffer, size));
+  CHECK(tree.gateway.transport().send(tree.controller.address(), buffer, size));
 }
 
 void testTheWrongChannelIsDeafness() noexcept {
@@ -459,12 +456,12 @@ void testEncryptionMustMatchBothWays() noexcept {
 
   HAPChild record;
   record.index = 1;
-  record.mac = slave.mac();
+  record.id = slave.id();
   master.router().addChild(record);
-  slave.router().setParent(master.mac(), 1);
+  slave.router().setParent(master.id(), 1);
 
-  master.transport().addPeer(slave.mac(), key);
-  slave.transport().addPeer(master.mac(), wrongKey);
+  master.transport().addPeer(slave.address(), key);
+  slave.transport().addPeer(master.address(), wrongKey);
 
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(HAPMessage::Ping);
@@ -473,13 +470,13 @@ void testEncryptionMustMatchBothWays() noexcept {
 
   // The send succeeds and nothing arrives - which on real hardware is a whole
   // evening with two boards unless you already suspect the key.
-  CHECK(master.transport().send(slave.mac(), buffer, size));
+  CHECK(master.transport().send(slave.address(), buffer, size));
   CHECK(bus.pumpAll() > 0);
   CHECK(slave.delivered().empty());
 
   // Corrected, the same frame lands.
-  slave.transport().addPeer(master.mac(), key);
-  CHECK(master.transport().send(slave.mac(), buffer, size));
+  slave.transport().addPeer(master.address(), key);
+  CHECK(master.transport().send(slave.address(), buffer, size));
   CHECK(bus.pumpAll() > 0);
   CHECK(slave.delivered().size() == 1);
 }

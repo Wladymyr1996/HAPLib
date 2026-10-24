@@ -50,7 +50,7 @@ bool HAPStack::begin(uint8_t channel) noexcept {
   // The peer has to exist before anything can be sent to it, and a restored
   // bind has no handshake to create one.
   if (bind_.bound) {
-    transport_.addPeer(bind_.parent, bind_.linkKey);
+    transport_.addPeer(HAPAddress::fromNodeId(bind_.parent), bind_.linkKey);
   }
 
   // What this node was TOLD about the tree below it, before it restarted.
@@ -79,7 +79,7 @@ bool HAPStack::begin(uint8_t channel) noexcept {
       //
       // nullptr for a child restored from a file written before keys were kept,
       // which is honest: unencrypted is what that link actually is.
-      transport_.addPeer(child->mac,
+      transport_.addPeer(HAPAddress::fromNodeId(child->id),
                          child->hasLinkKey() ? child->linkKey : nullptr);
 
       // And the model is told what this node already knows about that child.
@@ -102,9 +102,7 @@ bool HAPStack::begin(uint8_t channel) noexcept {
         restored.reportIntervalSec = child->reportIntervalSec;
         restored.descriptorRev = child->descriptorRev;
 
-        for (size_t byte = 0; byte < HAP_MAC_LEN; ++byte) {
-          restored.mac[byte] = child->mac.bytes[byte];
-        }
+        child->id.toMac(restored.mac);
 
         model_->noteChildAttached(HAPPath(), restored);
       }
@@ -276,7 +274,7 @@ bool HAPStack::maySleep() const noexcept {
 // Receiving
 // ---------------------------------------------------------------------------
 
-void HAPStack::onFrame(const HAPMac& from, const uint8_t* data,
+void HAPStack::onFrame(const HAPAddress& from, const uint8_t* data,
                        size_t size) noexcept {
   ++received_;
 
@@ -299,8 +297,10 @@ void HAPStack::onFrame(const HAPMac& from, const uint8_t* data,
     return;
   }
 
-  const HAPChild* sender = router_.childByMac(from);
-  const HAPRoute route = router_.route(frame, from);
+  // Frames carry no node id yet, so the sender is who the address says it is.
+  const HAPNodeId origin = from.nodeId();
+  const HAPChild* sender = router_.childById(origin);
+  const HAPRoute route = router_.route(frame, origin);
 
   switch (route.action) {
     case HAPRouteAction::Deliver:
@@ -349,7 +349,7 @@ void HAPStack::onFrame(const HAPMac& from, const uint8_t* data,
         }
       }
 
-      transmit(router_.parentMac(), frame);
+      transmit(router_.parentId(), frame);
       break;
     }
 
@@ -378,7 +378,7 @@ void HAPStack::onFrame(const HAPMac& from, const uint8_t* data,
   }
 }
 
-void HAPStack::onSendResult(const HAPMac& to, bool delivered) noexcept {
+void HAPStack::onSendResult(const HAPAddress& to, bool delivered) noexcept {
   binder_.notifySent(to, delivered);
 }
 
@@ -663,11 +663,11 @@ void HAPStack::handleRequest(const HAPFrame& frame) noexcept {
 // Sending
 // ---------------------------------------------------------------------------
 
-bool HAPStack::transmit(const HAPMac& mac, const HAPFrame& frame) noexcept {
+bool HAPStack::transmit(const HAPNodeId& to, const HAPFrame& frame) noexcept {
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size = frame.encode(buffer, sizeof(buffer));
 
-  if (size == 0 || !transport_.send(mac, buffer, size)) {
+  if (size == 0 || !transport_.send(HAPAddress::fromNodeId(to), buffer, size)) {
     return false;
   }
 
@@ -689,7 +689,7 @@ bool HAPStack::forwardToChild(HAPFrame& frame, uint8_t childIndex) noexcept {
   }
 
   if (!child->isBatteryPowered()) {
-    return transmit(child->mac, frame);
+    return transmit(child->id, frame);
   }
 
   // It is not there. Sending would be shouting into an empty room, so the frame
@@ -735,7 +735,7 @@ void HAPStack::flushQueue(uint8_t childIndex) noexcept {
     return;
   }
 
-  if (transport_.send(child->mac, waiting, size)) {
+  if (transport_.send(HAPAddress::fromNodeId(child->id), waiting, size)) {
     ++sent_;
     queue_.pop(childIndex);
     HInfo("delivered a queued frame to child %u", childIndex);
@@ -755,7 +755,7 @@ bool HAPStack::sendUpstream(HAPMessage type, uint8_t flags,
   frame.payload = payload;
   frame.payloadSize = static_cast<uint8_t>(size);
 
-  return transmit(router_.parentMac(), frame);
+  return transmit(router_.parentId(), frame);
 }
 
 bool HAPStack::sendDownstream(const HAPPath& path, HAPMessage type,
@@ -804,7 +804,7 @@ bool HAPStack::respond(const HAPFrame& to, HAPMessage type,
     return false;
   }
 
-  return transmit(router_.parentMac(), frame);
+  return transmit(router_.parentId(), frame);
 }
 
 void HAPStack::sendRouteError(const HAPFrame& frame, uint8_t failedHop,
@@ -989,9 +989,7 @@ bool HAPStack::announceChild(const HAPChild& child) noexcept {
   attached.reportIntervalSec = child.reportIntervalSec;
   attached.descriptorRev = child.descriptorRev;
 
-  for (size_t i = 0; i < HAP_MAC_LEN; ++i) {
-    attached.mac[i] = child.mac.bytes[i];
-  }
+  child.id.toMac(attached.mac);
 
   attached.encode(writer);
 
@@ -1042,10 +1040,10 @@ void HAPStack::childBound(const HAPChild& child) noexcept {
   }
 }
 
-void HAPStack::bound(const HAPMac& parent, uint8_t index,
+void HAPStack::bound(const HAPAddress& parent, uint8_t index,
                      const uint8_t* linkKey, uint8_t channel) noexcept {
   bind_.bound = true;
-  bind_.parent = parent;
+  bind_.parent = parent.nodeId();
   bind_.indexAtParent = index;
   bind_.channel = channel;
 
@@ -1105,13 +1103,13 @@ bool HAPStack::factoryReset() noexcept {
   // the peer unencrypted before every acceptance - which is exactly why the
   // fault only ever appears on the node being adopted.
   if (bind_.bound) {
-    transport_.removePeer(bind_.parent);
+    transport_.removePeer(HAPAddress::fromNodeId(bind_.parent));
   }
 
   for (size_t i = 0; i < router_.childCount(); ++i) {
     const HAPChild* child = router_.childAt(i);
     if (child != nullptr) {
-      transport_.removePeer(child->mac);
+      transport_.removePeer(HAPAddress::fromNodeId(child->id));
     }
   }
 

@@ -1,7 +1,8 @@
 #pragma once
 
 #include <HAP.h>
-#include <HAPMac/HAPMac.hpp>
+#include <HAPAddress/HAPAddress.hpp>
+#include <HAPNodeId/HAPNodeId.hpp>
 
 #include <cstddef>
 
@@ -42,8 +43,8 @@ class HAPITransport {
    * @param from The sender's address - which is the only trustworthy statement
    *        about where a frame came from, since nothing inside it is signed.
    */
-  using Receiver = etl::delegate<void(const HAPMac& from, const uint8_t* data,
-                                      size_t size)>;
+  using Receiver = etl::delegate<void(const HAPAddress& from,
+                                      const uint8_t* data, size_t size)>;
 
   /**
    * @brief Called when a frame has actually left the radio.
@@ -54,7 +55,7 @@ class HAPITransport {
    * changes part-way through a conversation. Guessing at that moment with a
    * timer is a race; this is the event it should hang off.
    */
-  using SendResult = etl::delegate<void(const HAPMac& to, bool delivered)>;
+  using SendResult = etl::delegate<void(const HAPAddress& to, bool delivered)>;
 
   virtual ~HAPITransport();
 
@@ -79,8 +80,8 @@ class HAPITransport {
    */
   virtual bool setChannel(uint8_t channel) = 0;
 
-  /** @brief This node's own address. */
-  virtual const HAPMac& localMac() const noexcept = 0;
+  /** @brief This node's own identity. */
+  virtual const HAPNodeId& localId() const noexcept = 0;
 
   /**
    * @brief Adds an address this node may unicast to.
@@ -88,13 +89,14 @@ class HAPITransport {
    *        plain peer. Only HAP_MAX_CHILDREN links may be encrypted - the radio
    *        ceiling that decides how many children a node may have.
    */
-  virtual bool addPeer(const HAPMac& mac, const uint8_t* key) = 0;
+  virtual bool addPeer(const HAPAddress& address, const uint8_t* key) = 0;
 
-  virtual bool removePeer(const HAPMac& mac) = 0;
-  virtual bool hasPeer(const HAPMac& mac) const = 0;
+  virtual bool removePeer(const HAPAddress& address) = 0;
+  virtual bool hasPeer(const HAPAddress& address) const = 0;
 
   /** @brief Hands one frame to the radio. See the note above about delivery. */
-  virtual bool send(const HAPMac& mac, const uint8_t* data, size_t size) = 0;
+  virtual bool send(const HAPAddress& to, const uint8_t* data,
+                    size_t size) = 0;
 
   /**
    * @brief Sends to everyone in range, unencrypted.

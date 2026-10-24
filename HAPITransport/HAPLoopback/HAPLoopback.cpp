@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 
 void HAPLoopbackBus::attach(HAPLoopback& node) noexcept {
-  if (find(node.localMac()) != nullptr || nodes_.full()) {
+  if (find(node.localAddress()) != nullptr || nodes_.full()) {
     return;
   }
 
@@ -23,9 +23,9 @@ void HAPLoopbackBus::detach(const HAPLoopback& node) noexcept {
   }
 }
 
-HAPLoopback* HAPLoopbackBus::find(const HAPMac& mac) const noexcept {
+HAPLoopback* HAPLoopbackBus::find(const HAPAddress& address) const noexcept {
   for (HAPLoopback* node : nodes_) {
-    if (node->localMac() == mac) {
+    if (node->localAddress() == address) {
       return node;
     }
   }
@@ -42,7 +42,7 @@ bool HAPLoopbackBus::enqueue(const Packet& packet) noexcept {
   return true;
 }
 
-void HAPLoopbackBus::setReachable(const HAPMac& a, const HAPMac& b,
+void HAPLoopbackBus::setReachable(const HAPNodeId& a, const HAPNodeId& b,
                                   bool reachable) noexcept {
   for (auto it = blocks_.begin(); it != blocks_.end(); ++it) {
     const bool sameOrder = it->a == a && it->b == b;
@@ -61,7 +61,8 @@ void HAPLoopbackBus::setReachable(const HAPMac& a, const HAPMac& b,
   }
 }
 
-bool HAPLoopbackBus::isReachable(const HAPMac& a, const HAPMac& b) const noexcept {
+bool HAPLoopbackBus::isReachable(const HAPNodeId& a,
+                                 const HAPNodeId& b) const noexcept {
   for (const Block& block : blocks_) {
     if ((block.a == a && block.b == b) || (block.a == b && block.b == a)) {
       return false;
@@ -94,12 +95,12 @@ void HAPLoopbackBus::deliver(const Packet& packet) noexcept {
   size_t received = 0;
 
   for (HAPLoopback* node : nodes_) {
-    if (node->localMac() == packet.from) {
+    if (node->localAddress() == packet.from) {
       continue;  // A radio does not hear itself.
     }
 
     const bool addressed =
-        packet.to.isBroadcast() || node->localMac() == packet.to;
+        packet.to.isBroadcast() || node->localAddress() == packet.to;
     if (!addressed) {
       continue;
     }
@@ -110,7 +111,7 @@ void HAPLoopbackBus::deliver(const Packet& packet) noexcept {
       continue;
     }
 
-    if (!isReachable(packet.from, node->localMac())) {
+    if (!isReachable(packet.from.nodeId(), node->localId())) {
       continue;
     }
 
@@ -204,8 +205,8 @@ void HAPLoopbackBus::reset() noexcept {
 // HAPLoopback
 // ---------------------------------------------------------------------------
 
-HAPLoopback::HAPLoopback(const HAPMac& mac, HAPLoopbackBus& bus) noexcept
-    : mac_(mac), bus_(bus) {
+HAPLoopback::HAPLoopback(const HAPNodeId& id, HAPLoopbackBus& bus) noexcept
+    : id_(id), address_(HAPAddress::fromNodeId(id)), bus_(bus) {
   bus_.attach(*this);
 }
 
@@ -223,13 +224,18 @@ uint8_t HAPLoopback::channel() const noexcept {
   return channel_;
 }
 
-const HAPMac& HAPLoopback::localMac() const noexcept {
-  return mac_;
+const HAPNodeId& HAPLoopback::localId() const noexcept {
+  return id_;
 }
 
-const HAPLoopback::Peer* HAPLoopback::findPeer(const HAPMac& mac) const noexcept {
+const HAPAddress& HAPLoopback::localAddress() const noexcept {
+  return address_;
+}
+
+const HAPLoopback::Peer* HAPLoopback::findPeer(
+    const HAPAddress& address) const noexcept {
   for (const Peer& peer : peers_) {
-    if (peer.mac == mac) {
+    if (peer.address == address) {
       return &peer;
     }
   }
@@ -237,13 +243,13 @@ const HAPLoopback::Peer* HAPLoopback::findPeer(const HAPMac& mac) const noexcept
   return nullptr;
 }
 
-bool HAPLoopback::addPeer(const HAPMac& mac, const uint8_t* key) {
+bool HAPLoopback::addPeer(const HAPAddress& address, const uint8_t* key) {
   if (peers_.full()) {
     return false;
   }
 
   Peer peer;
-  peer.mac = mac;
+  peer.address = address;
   peer.encrypted = key != nullptr;
 
   if (key != nullptr) {
@@ -253,7 +259,7 @@ bool HAPLoopback::addPeer(const HAPMac& mac, const uint8_t* key) {
   // Re-adding replaces, which is what an implementation must do for a peer
   // whose key has just been renegotiated.
   for (Peer& existing : peers_) {
-    if (existing.mac == mac) {
+    if (existing.address == address) {
       existing = peer;
       return true;
     }
@@ -263,9 +269,9 @@ bool HAPLoopback::addPeer(const HAPMac& mac, const uint8_t* key) {
   return true;
 }
 
-bool HAPLoopback::removePeer(const HAPMac& mac) {
+bool HAPLoopback::removePeer(const HAPAddress& address) {
   for (auto it = peers_.begin(); it != peers_.end(); ++it) {
-    if (it->mac == mac) {
+    if (it->address == address) {
       peers_.erase(it);
       return true;
     }
@@ -274,25 +280,25 @@ bool HAPLoopback::removePeer(const HAPMac& mac) {
   return false;
 }
 
-bool HAPLoopback::hasPeer(const HAPMac& mac) const noexcept {
-  return findPeer(mac) != nullptr;
+bool HAPLoopback::hasPeer(const HAPAddress& address) const noexcept {
+  return findPeer(address) != nullptr;
 }
 
-bool HAPLoopback::send(const HAPMac& mac, const uint8_t* data, size_t size) {
+bool HAPLoopback::send(const HAPAddress& to, const uint8_t* data, size_t size) {
   if (!started_ || data == nullptr || size == 0 || size > HAP_MAX_FRAME_SIZE) {
     return false;
   }
 
   // The rule that matters: a radio will not unicast to a stranger. Code written
   // against a simulator that allowed it would fail on the first real board.
-  const Peer* peer = findPeer(mac);
+  const Peer* peer = findPeer(to);
   if (peer == nullptr) {
     return false;
   }
 
   HAPLoopbackBus::Packet packet;
-  packet.from = mac_;
-  packet.to = mac;
+  packet.from = address_;
+  packet.to = to;
   packet.channel = channel_;
   packet.encrypted = peer->encrypted;
   std::memcpy(packet.key, peer->key, HAP_KEY_LEN);
@@ -313,8 +319,8 @@ bool HAPLoopback::broadcast(const uint8_t* data, size_t size) {
   }
 
   HAPLoopbackBus::Packet packet;
-  packet.from = mac_;
-  packet.to = HAPMac::broadcast();
+  packet.from = address_;
+  packet.to = HAPAddress::broadcast();
   packet.channel = channel_;
   packet.encrypted = false;  // Broadcast never is - which is the bind window's risk.
   std::memcpy(packet.data, data, size);
@@ -336,7 +342,7 @@ void HAPLoopback::onSendResult(SendResult result) {
   sendResult_ = result;
 }
 
-void HAPLoopback::sent(const HAPMac& to, bool delivered) noexcept {
+void HAPLoopback::sent(const HAPAddress& to, bool delivered) noexcept {
   if (sendResult_.is_valid()) {
     sendResult_(to, delivered);
   }

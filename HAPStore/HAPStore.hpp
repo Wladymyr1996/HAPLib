@@ -52,7 +52,9 @@
 /** @brief The link upward. Everything a slave needs to reach its parent. */
 struct HAPBindState {
   bool bound = false;
-  HAPMac parent;
+
+  /** Stored as its six-byte MAC form, which is what the files hold today. */
+  HAPNodeId parent;
 
   /** What the parent calls this node. 1..HAP_MAX_CHILDREN. */
   uint8_t indexAtParent = 0;

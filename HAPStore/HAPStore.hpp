@@ -34,9 +34,8 @@
  * A 16-byte key is 32 hex characters, which is exactly what
  * HVALUE_MAX_STRING_LEN is already required to hold; appending it to the record
  * would have needed 58 and broken any application sized to the documented
- * minimum. Both halves must be kept: a master that restored its children without
- * their keys would hold them as unencrypted peers while they transmitted
- * encrypted, and neither end would ever hear the other again.
+ * minimum. The key is persisted because the stored format carries it; nothing reads it
+ * after load today.
  *
  * ## The RTC mirror holds exactly what a wake needs to transmit
  * Only the link upward is mirrored into retained memory, and deliberately not

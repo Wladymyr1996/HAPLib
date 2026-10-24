@@ -27,12 +27,9 @@ struct HAPChild {
   /**
    * The key this link is encrypted with. Zero until a bind supplies one.
    *
-   * A master has to keep this, and keep it across a reboot. Every link in HAP is
-   * encrypted, and a child stores its own copy with its bind - so a master that
-   * forgot the key would come back holding its children as PLAIN peers while
-   * they went on transmitting encrypted, and neither side could hear the other
-   * again. There is no recovery from that: a child has one parent for life and
-   * will never re-announce, so nothing would ever re-establish the key.
+   * A master keeps this across a reboot, and a child stores its own copy with
+   * its bind. Nothing reads it after load today; it is kept because the stored
+   * format carries it.
    */
   uint8_t linkKey[HAP_KEY_LEN] = {};
 
@@ -115,19 +112,14 @@ class HAPRouter {
   /**
    * @brief How many children THIS node may have, which is not always the same.
    *
-   * ESP-NOW holds six ENCRYPTED peers, and every link in HAP is encrypted -
-   * including the one going up. So a node's budget is:
+   * The budget is inherited from ESP-NOW's peer limit: the link going up
+   * costs one slot of the child table. The transport no longer imposes it, so
+   * it is a configured limit that stays until the child table is redesigned:
    *
    * | Node | Parent link | Children |
    * | ---- | ----------- | -------- |
    * | root | none | **6** |
    * | anything bound | 1 slot | **5** |
-   *
-   * Getting this wrong does not fail where you would look for it. The sixth
-   * child of a bound node binds *almost* correctly - the acceptance goes out,
-   * because an unencrypted peer still fits - and then the radio refuses to make
-   * that peer encrypted, the child's confirmation is dropped below the protocol,
-   * and the log says only that nobody confirmed.
    */
   uint8_t childCapacity() const noexcept;
 

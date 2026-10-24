@@ -159,7 +159,7 @@ constexpr const char* HAPLibVersion() noexcept {
  */
 #define HAP_MAX_URL_LEN 128
 
-/** Length of an ESP-NOW local master key. */
+/** Length of a link key (BindAccept, HAPStore). */
 #define HAP_KEY_LEN 16
 
 /**

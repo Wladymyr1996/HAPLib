@@ -85,7 +85,6 @@ node.addInstance(HAPClassId::Thermometer, "Temp");
 stack.begin();
 
 for (;;) {
-  radio.update();     // drains the Wi-Fi task's queue onto this one
   stack.update();     // every HCORELIB_TICK_MS
 }
 ```

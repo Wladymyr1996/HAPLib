@@ -2,7 +2,6 @@
 
 #include <HAPITransport/HAPLoopback/HAPLoopback.hpp>
 
-#include <cstring>
 
 /**
  * @file HAPLoopbackTest.cpp

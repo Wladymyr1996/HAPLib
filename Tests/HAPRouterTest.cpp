@@ -66,9 +66,8 @@ void testChildBookkeeping() noexcept {
 }
 
 void testTheParentCostsAChildSlot() noexcept {
-  // ESP-NOW holds six ENCRYPTED peers and every HAP link is encrypted, the one
-  // going up included. A root spends all six on children; anything bound spends
-  // one of them upward.
+  // The child table is a configured limit. A root spends all of it on children;
+  // anything bound spends one slot upward.
   HAPRouter root;
   CHECK(root.childCapacity() == HAP_MAX_CHILDREN);
 
@@ -86,10 +85,7 @@ void testTheParentCostsAChildSlot() noexcept {
   CHECK(bound.isFull());
   CHECK(bound.freeChildIndex() == 0);
 
-  // The sixth is refused HERE, where it can be logged - rather than on the
-  // radio, where the acceptance goes out, the peer cannot be made encrypted,
-  // the confirmation is dropped below the protocol, and the only symptom is
-  // "nobody confirmed".
+  // The sixth is refused HERE, where it can be logged.
   HAPNodeId extra = kGateway;
   extra.bytes[5] = HAP_MAX_CHILDREN;
   CHECK(!bound.addChild(makeChild(HAP_MAX_CHILDREN, extra)));

@@ -85,8 +85,8 @@ uint8_t HAPRouter::indexAtParent() const noexcept {
 // ---------------------------------------------------------------------------
 
 uint8_t HAPRouter::childCapacity() const noexcept {
-  // The link upward is encrypted too, and comes out of the same six slots the
-  // radio has for encrypted peers.
+  // The link upward costs one slot of the child table (a limit inherited from
+  // ESP-NOW's peer slots; the transport no longer imposes it).
   return hasParent_ ? HAP_MAX_CHILDREN - 1 : HAP_MAX_CHILDREN;
 }
 

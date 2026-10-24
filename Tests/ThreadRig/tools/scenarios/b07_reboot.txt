@@ -17,8 +17,11 @@ grab C_HEAP0 @C /heap=(\d+)/
 @B reset
 expect @B /HAPBOOT id=${B_ID}/ timeout=30
 expect @B /HAPSTATE attached=1/ timeout=40
-@B !hap info
-expect @B /HAPINFO id=${B_ID} addr=${B_ADDR} attached=1/
+# the console is still printing its banner right after boot: let it finish, and
+# poll, because the node first attaches as a leader of its own partition and
+# merges back a little later
+sleep 3
+until @B !hap info => /HAPINFO id=${B_ID} addr=${B_ADDR} attached=1/ timeout=30
 
 mark m1
 @A !hap send ${B_ADDR} again

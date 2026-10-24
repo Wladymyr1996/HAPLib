@@ -89,8 +89,8 @@ class HAPBinder {
 
   /**
    * @brief Opens the master's window. The user pressed Bind on this device.
-   * @return false when the node already has HAP_MAX_CHILDREN children, which is
-   *         the radio's ceiling on encrypted peers rather than a choice.
+   * @return false when the node already has HAP_MAX_CHILDREN children, the
+   *         limit of the router's child table.
    */
   bool listen() noexcept;
 

@@ -65,7 +65,7 @@ class TestNode {
   HAPAddress address() const noexcept { return HAPAddress::fromNodeId(id_); }
   HAPLoopback& transport() noexcept { return transport_; }
 
-  /** @brief Adds a child, both to the routing table and to the radio. */
+  /** @brief Adds a child to the routing table, and this node as its parent. */
   void adopt(uint8_t index, TestNode& child, uint8_t capabilities = HAPCaps::None) noexcept {
     HAPChild record;
     record.index = index;
@@ -73,10 +73,8 @@ class TestNode {
     record.capabilities = capabilities;
 
     router_.addChild(record);
-    transport_.addPeer(child.address(), nullptr);
 
     child.router().setParent(id_, index);
-    child.transport().addPeer(address(), nullptr);
   }
 
   /** @brief Sends a frame this node is originating. */
@@ -392,8 +390,6 @@ void testAStrangerIsIgnored() noexcept {
 
   // It can transmit - the radio has no opinion - but it is nobody's parent and
   // nobody's child, so the frame goes no further than the router.
-  intruder.transport().addPeer(tree.controller.address(), nullptr);
-
   HAPFrame frame;
   frame.type = static_cast<uint8_t>(HAPMessage::ReadRequest);
 
@@ -407,17 +403,25 @@ void testAStrangerIsIgnored() noexcept {
   CHECK(tree.controller.drops()[0] == HAPResult::NotBound);
 }
 
-void testARadioWillNotTalkToAStranger() noexcept {
+void testAUnicastToNobodyIsLostSilently() noexcept {
   Tree tree;
 
-  // The rule that catches more real bugs than any other: ESP-NOW refuses to
-  // unicast to an address that is not in its peer table.
+  // The rule that catches more real bugs than any other: a send reports only
+  // that the radio took the frame. An address nobody holds is not an error, and
+  // nothing arrives - so a caller that took `true` for delivery is wrong.
   HAPFrame frame;
   uint8_t buffer[HAP_MAX_FRAME_SIZE];
   const size_t size = frame.encode(buffer, sizeof(buffer));
 
-  CHECK(!tree.gateway.transport().send(tree.thermometer.address(), buffer, size));
-  CHECK(tree.gateway.transport().send(tree.controller.address(), buffer, size));
+  const size_t delivered = tree.bus.deliveredCount();
+
+  CHECK(tree.gateway.transport().send(HAPAddress::fromNodeId(idFor(0x77)),
+                                      buffer, size));
+  CHECK(tree.bus.pending() == 1);
+  tree.bus.pumpAll();
+
+  CHECK(tree.bus.pending() == 0);
+  CHECK(tree.bus.deliveredCount() == delivered);
 }
 
 void testTheWrongChannelIsDeafness() noexcept {
@@ -443,49 +447,11 @@ void testTheWrongChannelIsDeafness() noexcept {
   CHECK(tree.gateway.delivered().empty());
 }
 
-void testEncryptionMustMatchBothWays() noexcept {
-  HAPLoopbackBus bus;
-  TestNode master(1, bus);
-  TestNode slave(2, bus);
-
-  uint8_t key[HAP_KEY_LEN];
-  std::memset(key, 0xAB, sizeof(key));
-
-  uint8_t wrongKey[HAP_KEY_LEN];
-  std::memset(wrongKey, 0xCD, sizeof(wrongKey));
-
-  HAPChild record;
-  record.index = 1;
-  record.id = slave.id();
-  master.router().addChild(record);
-  slave.router().setParent(master.id(), 1);
-
-  master.transport().addPeer(slave.address(), key);
-  slave.transport().addPeer(master.address(), wrongKey);
-
-  HAPFrame frame;
-  frame.type = static_cast<uint8_t>(HAPMessage::Ping);
-  uint8_t buffer[HAP_MAX_FRAME_SIZE];
-  const size_t size = frame.encode(buffer, sizeof(buffer));
-
-  // The send succeeds and nothing arrives - which on real hardware is a whole
-  // evening with two boards unless you already suspect the key.
-  CHECK(master.transport().send(slave.address(), buffer, size));
-  CHECK(bus.pumpAll() > 0);
-  CHECK(slave.delivered().empty());
-
-  // Corrected, the same frame lands.
-  slave.transport().addPeer(master.address(), key);
-  CHECK(master.transport().send(slave.address(), buffer, size));
-  CHECK(bus.pumpAll() > 0);
-  CHECK(slave.delivered().size() == 1);
-}
-
 void testBroadcastReachesEveryoneInRange() noexcept {
   Tree tree;
   TestNode newcomer(9, tree.bus);
 
-  // How an unbound node is heard at all: no peer entry needed, by anybody.
+  // How an unbound node is heard at all: nobody has to know it first.
   HAPFrame announce;
   announce.type = static_cast<uint8_t>(HAPMessage::BindAnnounce);
 
@@ -553,9 +519,8 @@ void runTreeTests() noexcept {
   testAMissingChildIsDiagnosed();
   testTheOtherBranchIsUndisturbed();
   testAStrangerIsIgnored();
-  testARadioWillNotTalkToAStranger();
+  testAUnicastToNobodyIsLostSilently();
   testTheWrongChannelIsDeafness();
-  testEncryptionMustMatchBothWays();
   testBroadcastReachesEveryoneInRange();
   testDepthFive();
 }

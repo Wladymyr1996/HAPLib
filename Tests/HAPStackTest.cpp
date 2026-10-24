@@ -353,10 +353,8 @@ void testAMasterThatRebootsCanStillHearItsChildren() noexcept {
   // Docs/TestPlan.md A2's second half, and the half that cannot be judged by
   // looking at the tables: they came back perfect while the link was dead.
   //
-  // The MASTER is the one that reboots here. The child stays up, still holding
-  // its parent as an encrypted peer and still transmitting - which is exactly
-  // the situation a master comes back into, and the reason it must return with
-  // the same key rather than a blank one.
+  // The MASTER is the one that reboots here. The child stays up and still
+  // transmitting - which is exactly the situation a master comes back into.
   HAPLoopbackBus bus;
   Device sensor(2, bus, HAPDeviceType::Sensor, HAPCaps::None, "Bedroom", 1);
   sensor.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
@@ -387,9 +385,7 @@ void testAMasterThatRebootsCanStillHearItsChildren() noexcept {
   CHECK(master.stack().router().childCount() == 1);
   CHECK(sensor.stack().isBound());
 
-  // The key came back with the child. Checked separately from the reading
-  // below, because "restored but unencrypted" and "restored and deaf" are the
-  // same symptom and different faults.
+  // The key came back with the child: the stored format still carries it.
   const HAPChild* storedChild = master.stack().router().childAt(0);
   REQUIRE(storedChild != nullptr);
   CHECK(storedChild->hasLinkKey());
@@ -477,8 +473,7 @@ void testAResetDeviceCanRejoinTheParentThatStillListsIt() noexcept {
   // A node only announces when it is UNBOUND, so an announcement from an address
   // already in the child table is proof the child has been reset and the entry
   // is the stale one. This used to be refused: the only way back was a factory
-  // reset of the PARENT, which drops its other children with it, and meanwhile
-  // the ghost held one of six encrypted peer slots.
+  // reset of the PARENT, which drops its other children with it.
   HAPLoopbackBus bus;
   Device master(1, bus, HAPDeviceType::Controller, HAPCaps::CanBeMaster,
                 "Heating", 0);
@@ -522,8 +517,8 @@ void testAResetDeviceCanRejoinTheParentThatStillListsIt() noexcept {
   CHECK(after->index == wasIndex);
   CHECK(master.stack().router().childById(first.id()) != nullptr);
 
-  // And the link works: a re-adoption that left the peer keyed with the old
-  // key would look exactly like a successful bind and carry nothing.
+  // And the link works: a re-adoption that bound but carried nothing would
+  // look exactly like a successful one.
   Device* devices[] = {&master, &first, &sensor};
   sensor.node().instanceAt(0)->publish(0, HValue(21.5f));
   HSystemUtils::sleep(1100);
@@ -633,13 +628,7 @@ void testAFactoryResetFreesADevice() noexcept {
   CHECK(sensor.stack().binder().announce());
   sensor.stack().binder().stopAnnouncing();
 
-  // AND IT ACTUALLY BINDS. Being willing to announce is not the same thing, and
-  // the difference is what three boards found: a reset that cleared the router
-  // but left the radio's peer table alone kept the old parent as an ENCRYPTED
-  // peer, so the next BindAccept - which must arrive in the clear, because it
-  // carries the new key - was discarded by the radio. The node announced for
-  // ever and the master logged "never confirmed", through every retry, until
-  // somebody power-cycled it.
+  // AND IT ACTUALLY BINDS. Being willing to announce is not the same thing.
   CHECK(master.stack().factoryReset());
   CHECK(bindPair(bus, master, sensor));
   CHECK(sensor.stack().isBound());

@@ -381,7 +381,6 @@ void testTheLoopSurvivesTheRootGoingAway() noexcept {
   const HAPNodeId thermometerId = HAPNodeId::fromMac(thermometerMac);
   const HAPAddress gatewayAddress = HAPAddress::fromMac(gatewayMac);
   const HAPAddress controllerAddress = HAPAddress::fromMac(controllerMac);
-  const HAPAddress thermometerAddress = HAPAddress::fromMac(thermometerMac);
 
   HAPLoopback gatewayRadio(gatewayId, bus);
   HAPLoopback controllerRadio(controllerId, bus);
@@ -390,11 +389,6 @@ void testTheLoopSurvivesTheRootGoingAway() noexcept {
   gatewayRadio.begin(1);
   controllerRadio.begin(1);
   thermometerRadio.begin(1);
-
-  gatewayRadio.addPeer(controllerAddress, nullptr);
-  controllerRadio.addPeer(gatewayAddress, nullptr);
-  controllerRadio.addPeer(thermometerAddress, nullptr);
-  thermometerRadio.addPeer(controllerAddress, nullptr);
 
   HAPNode controllerNode;
   fillController(controllerNode);

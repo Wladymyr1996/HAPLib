@@ -187,10 +187,8 @@ static_assert(HAP_HEADER_SIZE + HAP_MAX_PAYLOAD_SIZE == HAP_MAX_FRAME_SIZE,
 /**
  * Children one node may have.
  *
- * Six is not a protocol decision - it is ESP-NOW's ceiling on ENCRYPTED peers.
- * Raising it means links beyond the sixth cannot be encrypted, which is a
- * security decision rather than a memory one, so raise it only with that in
- * mind.
+ * A configured limit of the router's child table, sized for the devices this
+ * network is built from.
  */
 #ifndef HAP_MAX_CHILDREN
 #define HAP_MAX_CHILDREN 6

@@ -105,40 +105,13 @@ void HAPLoopbackBus::deliver(const Packet& packet) noexcept {
       continue;
     }
 
-    // Every one of these three is a real way to receive nothing, and each one
-    // looks exactly like a protocol bug from the far end.
+    // Each of these is a real way to receive nothing, and each one looks
+    // exactly like a protocol bug from the far end.
     if (node->channel() != packet.channel) {
       continue;
     }
 
     if (!isReachable(packet.from.nodeId(), node->localId())) {
-      continue;
-    }
-
-    const HAPLoopback::Peer* peer = node->findPeer(packet.from);
-
-    if (packet.encrypted) {
-      if (peer == nullptr || !peer->encrypted ||
-          std::memcmp(peer->key, packet.key, HAP_KEY_LEN) != 0) {
-        continue;
-      }
-    } else if (!packet.to.isBroadcast() && peer != nullptr && peer->encrypted) {
-      // THE REVERSE CASE, and the one that had to be found on a bench.
-      //
-      // A node holding the sender as an ENCRYPTED peer will not take plain text
-      // from it: ESP-NOW expects everything from that address to be protected,
-      // and discards what is not - while still acknowledging it at the MAC
-      // layer, so the sender sees a perfectly successful transmission.
-      //
-      // Not modelling this is what let a factory reset that forgot to drop its
-      // peers pass 1112 host checks and then fail on three boards: the reset
-      // node kept its old parent as an encrypted peer, so the next BindAccept -
-      // which must arrive in the CLEAR, because it carries the new key - was
-      // dropped before any protocol code saw it, for ever, until a power cycle.
-      //
-      // Broadcast is exempt, and really is: a broadcast is addressed to the
-      // broadcast peer rather than to the sender's entry, which is why an
-      // unbound node can still be heard by everybody.
       continue;
     }
 
@@ -232,67 +205,8 @@ const HAPAddress& HAPLoopback::localAddress() const noexcept {
   return address_;
 }
 
-const HAPLoopback::Peer* HAPLoopback::findPeer(
-    const HAPAddress& address) const noexcept {
-  for (const Peer& peer : peers_) {
-    if (peer.address == address) {
-      return &peer;
-    }
-  }
-
-  return nullptr;
-}
-
-bool HAPLoopback::addPeer(const HAPAddress& address, const uint8_t* key) {
-  if (peers_.full()) {
-    return false;
-  }
-
-  Peer peer;
-  peer.address = address;
-  peer.encrypted = key != nullptr;
-
-  if (key != nullptr) {
-    std::memcpy(peer.key, key, HAP_KEY_LEN);
-  }
-
-  // Re-adding replaces, which is what an implementation must do for a peer
-  // whose key has just been renegotiated.
-  for (Peer& existing : peers_) {
-    if (existing.address == address) {
-      existing = peer;
-      return true;
-    }
-  }
-
-  peers_.push_back(peer);
-  return true;
-}
-
-bool HAPLoopback::removePeer(const HAPAddress& address) {
-  for (auto it = peers_.begin(); it != peers_.end(); ++it) {
-    if (it->address == address) {
-      peers_.erase(it);
-      return true;
-    }
-  }
-
-  return false;
-}
-
-bool HAPLoopback::hasPeer(const HAPAddress& address) const noexcept {
-  return findPeer(address) != nullptr;
-}
-
 bool HAPLoopback::send(const HAPAddress& to, const uint8_t* data, size_t size) {
   if (!started_ || data == nullptr || size == 0 || size > HAP_MAX_FRAME_SIZE) {
-    return false;
-  }
-
-  // The rule that matters: a radio will not unicast to a stranger. Code written
-  // against a simulator that allowed it would fail on the first real board.
-  const Peer* peer = findPeer(to);
-  if (peer == nullptr) {
     return false;
   }
 
@@ -300,8 +214,6 @@ bool HAPLoopback::send(const HAPAddress& to, const uint8_t* data, size_t size) {
   packet.from = address_;
   packet.to = to;
   packet.channel = channel_;
-  packet.encrypted = peer->encrypted;
-  std::memcpy(packet.key, peer->key, HAP_KEY_LEN);
   std::memcpy(packet.data, data, size);
   packet.size = size;
 
@@ -322,7 +234,6 @@ bool HAPLoopback::broadcast(const uint8_t* data, size_t size) {
   packet.from = address_;
   packet.to = HAPAddress::broadcast();
   packet.channel = channel_;
-  packet.encrypted = false;  // Broadcast never is - which is the bind window's risk.
   std::memcpy(packet.data, data, size);
   packet.size = size;
 

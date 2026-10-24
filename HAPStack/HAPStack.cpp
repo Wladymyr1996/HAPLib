@@ -47,12 +47,6 @@ bool HAPStack::begin(uint8_t channel) noexcept {
   links_.onDeliver(
       HAPLinks::DeliveryHook::create<HAPStack, &HAPStack::deliverLink>(*this));
 
-  // The peer has to exist before anything can be sent to it, and a restored
-  // bind has no handshake to create one.
-  if (bind_.bound) {
-    transport_.addPeer(HAPAddress::fromNodeId(bind_.parent), bind_.linkKey);
-  }
-
   // What this node was TOLD about the tree below it, before it restarted.
   // Restored before the children below, so that seeding them refreshes entries
   // rather than creating rival ones - and so that a device which moved while
@@ -67,22 +61,7 @@ bool HAPStack::begin(uint8_t channel) noexcept {
   for (size_t i = 0; i < router_.childCount(); ++i) {
     const HAPChild* child = router_.childAt(i);
     if (child != nullptr) {
-      // Restored children are peers again, WITH THE KEY THEY WERE BOUND WITH.
-      //
-      // This used to add them unencrypted, on the theory that a link key belongs
-      // to the child's own copy of the bind and would be re-established when the
-      // child next bound. It never binds again: one parent, for life. So a
-      // master that rebooted came back holding every child as a plain peer while
-      // each child went on transmitting encrypted, and the radio dropped the lot
-      // in both directions - silently, below the protocol. The network was dead
-      // and every table in it looked perfect.
-      //
-      // nullptr for a child restored from a file written before keys were kept,
-      // which is honest: unencrypted is what that link actually is.
-      transport_.addPeer(HAPAddress::fromNodeId(child->id),
-                         child->hasLinkKey() ? child->linkKey : nullptr);
-
-      // And the model is told what this node already knows about that child.
+      // The model is told what this node already knows about that child.
       //
       // A REPORT CARRIES NO ID, NO CAPABILITIES AND NO INTERVAL - only
       // ChildAttached does, and that happened before the reboot. So a master
@@ -1082,37 +1061,6 @@ void HAPStack::bound(const HAPAddress& parent, uint8_t index,
 }
 
 bool HAPStack::factoryReset() noexcept {
-  // THE RADIO'S PEER TABLE GOES FIRST, and forgetting it is not a tidiness
-  // problem - it is what stops the node ever binding again.
-  //
-  // Every link in HAP is encrypted, so a bound node holds its parent and its
-  // children as ENCRYPTED peers. Clearing the router without clearing those
-  // leaves the addresses behind with keys nobody will use again, and ESP-NOW
-  // then expects everything from them to be encrypted. The next BindAccept must
-  // arrive in the CLEAR - it carries the new key - so the radio discards it
-  // before any of this code sees it, while still acknowledging it at the MAC
-  // layer. The far end therefore sees a successful send and no reply.
-  //
-  // The symptom is a node that announces for ever after a factory reset while
-  // its would-be parent logs "never confirmed", and it survives every retry
-  // because nothing in RAM has changed. A power cycle "fixes" it, which is what
-  // makes it so easy to miss: on the bench the reset that failed and the reboot
-  // that fixed it are two different actions minutes apart.
-  //
-  // A master does not have this problem in the same way - sendAccept() re-adds
-  // the peer unencrypted before every acceptance - which is exactly why the
-  // fault only ever appears on the node being adopted.
-  if (bind_.bound) {
-    transport_.removePeer(HAPAddress::fromNodeId(bind_.parent));
-  }
-
-  for (size_t i = 0; i < router_.childCount(); ++i) {
-    const HAPChild* child = router_.childAt(i);
-    if (child != nullptr) {
-      transport_.removePeer(HAPAddress::fromNodeId(child->id));
-    }
-  }
-
   router_.clearParent();
   router_.clearChildren();
   links_.clear(HAPClearLinkRequest::kAllLinks);

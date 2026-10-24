@@ -12,15 +12,11 @@
  * @brief The handshake, on the simulated radio.
  *
  * Two nodes that have never met, a broadcast, and four frames later a tree.
- * Everything here runs against a bus that refuses to unicast to a stranger and
- * refuses to deliver a frame encrypted with the wrong key - so a handshake that
- * passes has actually established a working encrypted link, not just exchanged
- * the right message types.
  *
  * Timers are real HTimers against the real clock, so anything that has to wait
- * is waited for. The tests keep those waits to the key-switch delay (50 ms) and
- * never to a bind window (60 s), which is checked by driving state directly
- * instead.
+ * is waited for. The tests keep those waits to the announce period and the
+ * confirmation timeout and never to a bind window (60 s), which is checked by
+ * driving state directly instead.
  */
 
 namespace {
@@ -180,8 +176,6 @@ void testTheWholeHandshake() noexcept {
   CHECK(master.binder().state() == HAPBinder::State::Accepting);
   CHECK(master.router().childCount() == 0);
 
-  // The key switch happens the instant the acceptance leaves the radio, so the
-  // confirmation - encrypted - is readable by the time it arrives.
   run(bus, master, slave, 6);
 
   CHECK(master.sawChildBound());
@@ -210,7 +204,7 @@ void testTheWholeHandshake() noexcept {
   CHECK(!master.binder().isListening());
 }
 
-void testTheLinkIsActuallyEncryptedAfterwards() noexcept {
+void testTheMasterCanReachTheSlaveAfterwards() noexcept {
   HAPLoopbackBus bus;
   BindableNode master = makeMaster(1, bus);
   BindableNode slave(2, bus, HAPDeviceType::Sensor, HAPCaps::BatteryPowered,
@@ -224,9 +218,7 @@ void testTheLinkIsActuallyEncryptedAfterwards() noexcept {
 
   CHECK(master.sawChildBound());
 
-  // The bus refuses to deliver a frame encrypted with a key the receiver does
-  // not hold, so this arriving at all is proof the two agreed - not merely that
-  // the right message types were exchanged.
+  // A plain unicast, with no setup beyond the bind itself.
   const size_t before = slave.transport().receivedCount();
 
   HAPFrame ping;
@@ -272,8 +264,8 @@ void testAFullMasterRefuses() noexcept {
     CHECK(master.router().addChild(child));
   }
 
-  // Six is the radio's ceiling on encrypted peers, not a policy - and a master
-  // that let a seventh bind would have a link nobody could encrypt.
+  // The router's child table is full, and a master that let a seventh bind
+  // would have nowhere to record it.
   CHECK(master.router().isFull());
   CHECK(!master.binder().listen());
   CHECK(master.binder().state() == HAPBinder::State::Idle);
@@ -297,7 +289,7 @@ void testAnnouncementsAreIgnoredWithNoWindowOpen() noexcept {
   CHECK(slave.binder().isAnnouncing());
 }
 
-void testAnAbandonedAcceptGivesTheSlotBack() noexcept {
+void testAnAbandonedAcceptGivesTheIndexBack() noexcept {
   HAPLoopbackBus bus;
   BindableNode master = makeMaster(1, bus);
   BindableNode slave(2, bus, HAPDeviceType::Sensor, HAPCaps::BatteryPowered,
@@ -318,12 +310,11 @@ void testAnAbandonedAcceptGivesTheSlotBack() noexcept {
   CHECK(!slave.sawBound());
 
   // The master waits, gives up, and takes back everything it handed out: no
-  // half-bound child, and no peer squatting one of six encrypted slots.
+  // half-bound child.
   HSystemUtils::sleep(HAP_CONFIRM_TIMEOUT_MS + 50);
   master.update();
 
   CHECK(master.router().childCount() == 0);
-  CHECK(!master.transport().hasPeer(slave.address()));
 
   // And the window is still open for whatever is left of its minute.
   CHECK(master.binder().state() == HAPBinder::State::Listening);
@@ -444,11 +435,11 @@ void runBinderTests() noexcept {
 
   testRandomKeysDiffer();
   testTheWholeHandshake();
-  testTheLinkIsActuallyEncryptedAfterwards();
+  testTheMasterCanReachTheSlaveAfterwards();
   testASlaveBindsOnlyOnce();
   testAFullMasterRefuses();
   testAnnouncementsAreIgnoredWithNoWindowOpen();
-  testAnAbandonedAcceptGivesTheSlotBack();
+  testAnAbandonedAcceptGivesTheIndexBack();
   testTheAcceptGoesOnlyToWhoeverAnnounced();
   testTheSweepFindsAMasterOnAnotherChannel();
   testIndicesAreHandedOutInOrder();

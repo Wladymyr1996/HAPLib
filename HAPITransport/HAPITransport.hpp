@@ -31,10 +31,6 @@
  * - **The receiver runs where the radio does.** On ESP-NOW that is the Wi-Fi
  *   task, where blocking is not allowed and calling back into HAP is not safe -
  *   so an implementation copies into a queue and nothing more.
- * - **A stranger cannot be unicast to.** ESP-NOW refuses to send to an address
- *   that is not in its peer table, and every implementation must behave the
- *   same way, because code written against a permissive simulator would fail on
- *   the first real board.
  */
 class HAPITransport {
  public:
@@ -82,17 +78,6 @@ class HAPITransport {
 
   /** @brief This node's own identity. */
   virtual const HAPNodeId& localId() const noexcept = 0;
-
-  /**
-   * @brief Adds an address this node may unicast to.
-   * @param key HAP_KEY_LEN bytes to encrypt the link with, or nullptr for a
-   *        plain peer. Only HAP_MAX_CHILDREN links may be encrypted - the radio
-   *        ceiling that decides how many children a node may have.
-   */
-  virtual bool addPeer(const HAPAddress& address, const uint8_t* key) = 0;
-
-  virtual bool removePeer(const HAPAddress& address) = 0;
-  virtual bool hasPeer(const HAPAddress& address) const = 0;
 
   /** @brief Hands one frame to the radio. See the note above about delivery. */
   virtual bool send(const HAPAddress& to, const uint8_t* data,

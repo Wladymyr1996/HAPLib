@@ -9,18 +9,14 @@
  * @brief A radio made of memory, so a whole network fits inside one test.
  *
  * Host builds only. Several nodes attach to one HAPLoopbackBus, each with its
- * own address, peer table and channel, and frames move between them when the
+ * own address and channel, and frames move between them when the
  * test says so.
  *
  * ## It is deliberately unhelpful
  * A simulator that delivers everything to everybody would let code pass that
- * cannot work on a real board, so this one enforces what ESP-NOW enforces:
+ * cannot work on a real board, so this one is strict about what a radio is:
  *
- * - a unicast to an address that is not a peer **fails**, as `esp_now_send`
- *   does with ESP_ERR_ESPNOW_NOT_FOUND;
  * - two nodes on different channels **cannot hear each other**, at all;
- * - a frame encrypted with one key is **not received** by a peer holding a
- *   different one;
  * - nothing is delivered until the test pumps the bus, so no send ever
  *   completes inside the caller's own stack frame.
  *
@@ -85,8 +81,6 @@ class HAPLoopbackBus {
     HAPAddress from;
     HAPAddress to;
     uint8_t channel = 0;
-    bool encrypted = false;
-    uint8_t key[HAP_KEY_LEN] = {};
     uint8_t data[HAP_MAX_FRAME_SIZE] = {};
     size_t size = 0;
   };
@@ -132,10 +126,6 @@ class HAPLoopback : public HAPITransport {
   /** @brief The address other nodes on the bus reach this one at. */
   const HAPAddress& localAddress() const noexcept;
 
-  bool addPeer(const HAPAddress& address, const uint8_t* key) override;
-  bool removePeer(const HAPAddress& address) override;
-  bool hasPeer(const HAPAddress& address) const noexcept override;
-
   bool send(const HAPAddress& to, const uint8_t* data, size_t size) override;
   bool broadcast(const uint8_t* data, size_t size) override;
   void onReceive(Receiver receiver) override;
@@ -151,14 +141,6 @@ class HAPLoopback : public HAPITransport {
  private:
   friend class HAPLoopbackBus;
 
-  struct Peer {
-    HAPAddress address;
-    bool encrypted = false;
-    uint8_t key[HAP_KEY_LEN] = {};
-  };
-
-  const Peer* findPeer(const HAPAddress& address) const noexcept;
-
   /** Called by the bus when a frame reaches this node. */
   void receive(const HAPLoopbackBus::Packet& packet) noexcept;
 
@@ -172,10 +154,6 @@ class HAPLoopback : public HAPITransport {
   SendResult sendResult_;
   uint8_t channel_ = 0;
   bool started_ = false;
-
-  // The unencrypted broadcast peer occupies a slot on a real radio too, hence
-  // the +1 over the number of children a node may have.
-  etl::vector<Peer, HAP_MAX_CHILDREN + 2> peers_;
 
   size_t sent_ = 0;
   size_t received_ = 0;

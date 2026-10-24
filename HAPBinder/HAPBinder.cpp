@@ -26,8 +26,7 @@ HAPBinder::HAPBinder(HAPITransport& transport, HAPRouter& router,
 
 bool HAPBinder::listen() noexcept {
   if (router_.isFull()) {
-    // Not a policy: ESP-NOW holds six encrypted peers, and a seventh child
-    // would be a link nobody could encrypt.
+    // A limit of the router's child table, not a decision made here.
     HWarning("cannot bind: already %u children", HAP_MAX_CHILDREN);
     return false;
   }
@@ -77,8 +76,7 @@ bool HAPBinder::handleAnnounce(const HAPAddress& from,
   // child no longer believes it has a parent, and the entry here is the stale
   // one. This used to be refused, which let a dead record outvote a live device
   // - the only way back was a factory reset of the PARENT, dropping its other
-  // children with it. Worse, the ghost held one of six encrypted peer slots, so
-  // a node that collected a few eventually could not adopt anybody at all.
+  // children with it.
   //
   // The old index is kept rather than a fresh one taken. Links, paths and
   // anything a master has cached name a child by its index, and a device that
@@ -88,10 +86,9 @@ bool HAPBinder::handleAnnounce(const HAPAddress& from,
   uint8_t index = 0;
 
   if (returning != nullptr) {
-    // The stale entry is NOT removed here. If this handshake fails - and the
-    // one before the key switch is the one that does - the child must still be
-    // there afterwards. handleConfirm() replaces it, once there is something to
-    // replace it with.
+    // The stale entry is NOT removed here. If this handshake fails the child
+    // must still be there afterwards. handleConfirm() replaces it, once there is
+    // something to replace it with.
     index = returning->index;
     HInfo("%s announced but is already child %u; it has been reset, re-adopting",
           from.toString().c_str(), index);
@@ -104,22 +101,6 @@ bool HAPBinder::handleAnnounce(const HAPAddress& from,
     return true;
   }
 
-  // EVERYTHING THIS NODE NEEDS TO RECOGNISE THE SEND REPORT IS SET FIRST, and
-  // the acceptance goes out afterwards. The order is load-bearing, not tidiness.
-  //
-  // notifySent() is the whole mechanism for the key switch, and it guards on
-  // `state_ == Accepting && to == pending_`. The send report arrives on the
-  // Wi-Fi task, which pre-empts whatever task this runs on, so it can land
-  // BEFORE the next line of this function executes - and it did, on the bench,
-  // because the application logged the frame it had just sent and the report
-  // came back during the log line. The guard then discarded it, the link stayed
-  // unencrypted for the 200 ms fallback, and the child's confirmation - sent
-  // encrypted about ten milliseconds later - was dropped by the radio, below
-  // the protocol, where nothing can log it. The symptom is "the accept went out
-  // and nobody confirmed", which is exactly what it does not look like.
-  //
-  // Assigning first costs nothing and closes the window entirely: a report that
-  // arrives inside sendAccept() is now recognised.
   pending_ = from;
   pendingIndex_ = index;
   pendingType_ = announce.deviceType;
@@ -132,8 +113,8 @@ bool HAPBinder::handleAnnounce(const HAPAddress& from,
   confirm_.start(HAP_CONFIRM_TIMEOUT_MS);
 
   if (!sendAccept(from, index)) {
-    // Never left. Give back the index and the peer, and go on listening - the
-    // window has not closed and somebody else may still bind in what is left.
+    // Never left. Give back the index, and go on listening - the window has
+    // not closed and somebody else may still bind in what is left.
     abandonAccept();
     state_ = window_.isExpired() ? State::Idle : State::Listening;
     return true;
@@ -146,13 +127,6 @@ bool HAPBinder::handleAnnounce(const HAPAddress& from,
 
 bool HAPBinder::sendAccept(const HAPAddress& to, uint8_t childIndex) noexcept {
   HAPRandom::fill(linkKey_, sizeof(linkKey_));
-
-  // Added WITHOUT the key: this frame carries it, so it has to be readable by
-  // somebody who does not have it yet.
-  if (!transport_.addPeer(to, nullptr)) {
-    HWarning("could not add %s as a peer", to.toString().c_str());
-    return false;
-  }
 
   HAPBindAccept accept;
   accept.childIndex = childIndex;
@@ -195,11 +169,8 @@ bool HAPBinder::handleConfirm(const HAPAddress& from,
   // measure a silence.
   child.reportIntervalSec = pendingInterval_;
 
-  // The key goes with the child, and has to outlive this run. The child has
-  // already stored its own copy; a master that kept none would come back from a
-  // reboot holding this address as a PLAIN peer while the child went on
-  // transmitting encrypted - deaf in both directions, for ever, because a child
-  // has one parent for life and will never announce again.
+  // The key goes with the child, and is persisted with it. No transport uses it
+  // yet; the stored format still carries it.
   std::memcpy(child.linkKey, linkKey_, HAP_KEY_LEN);
 
   // The old entry for a device that is coming back goes NOW, and not a moment
@@ -235,10 +206,6 @@ void HAPBinder::switchToEncrypted() noexcept {
     return;
   }
 
-  // Re-adding a peer replaces it, which is how a link changes key without ever
-  // ceasing to be a peer - drop it and re-add it instead, and a frame in flight
-  // between the two has nowhere to arrive.
-  transport_.addPeer(pending_, linkKey_);
   keySwitched_ = true;
 }
 
@@ -261,9 +228,6 @@ void HAPBinder::notifySent(const HAPAddress& to, bool delivered) noexcept {
 
 void HAPBinder::abandonAccept() noexcept {
   if (!pending_.isZero()) {
-    // Everything given out is taken back. A peer left behind would occupy one
-    // of six encrypted slots for a device that never finished binding.
-    transport_.removePeer(pending_);
     pending_ = HAPAddress::zero();
   }
 
@@ -377,19 +341,11 @@ bool HAPBinder::handleAccept(const HAPAddress& from, const HAPFrame& frame) noex
 
   std::memcpy(linkKey_, accept.linkKey, sizeof(linkKey_));
 
-  if (!transport_.addPeer(from, linkKey_)) {
-    HWarning("could not add %s as an encrypted peer", from.toString().c_str());
-    return true;
-  }
-
   router_.setParent(from.nodeId(), accept.childIndex);
 
-  // Encrypted, with the key that just arrived - so that it decrypts at all is
-  // the proof the key survived the trip.
   if (!sendConfirm()) {
     HWarning("could not confirm to %s", from.toString().c_str());
     router_.clearParent();
-    transport_.removePeer(from);
     return true;
   }
 

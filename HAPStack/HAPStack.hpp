@@ -63,9 +63,9 @@ class HAPStack {
   /**
    * @brief Brings up the radio and restores whatever this node already knew.
    *
-   * Loads the bind, the children and the names from HAPStore, and installs the
-   * peers that go with them - so a node that was bound before the reboot is
-   * bound after it, with no handshake and no user involved.
+   * Loads the bind, the children and the names from HAPStore - so a node that
+   * was bound before the reboot is bound after it, with no handshake and no
+   * user involved.
    */
   bool begin(uint8_t channel) noexcept;
 

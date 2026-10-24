@@ -26,7 +26,8 @@ constexpr TickType_t kLockWait = pdMS_TO_TICKS(100);
 /** The OpenThread lock for one call. It is recursive, so the OpenThread task may hold it too. */
 class Lock {
  public:
-  Lock() noexcept : held_(esp_openthread_lock_acquire(kLockWait)) {}
+  explicit Lock(TickType_t wait = kLockWait) noexcept
+      : held_(esp_openthread_lock_acquire(wait)) {}
   ~Lock() {
     if (held_) {
       esp_openthread_lock_release();
@@ -84,7 +85,8 @@ struct HAPOpenThreadEsp::Socket {
 HAPOpenThreadEsp::HAPOpenThreadEsp() noexcept = default;
 
 HAPOpenThreadEsp::~HAPOpenThreadEsp() {
-  close();
+  // Unbounded: a socket left open would call back into a destroyed object.
+  closeSocket(true);
 }
 
 bool HAPOpenThreadEsp::open(uint16_t port, Handler handler) {
@@ -107,7 +109,6 @@ bool HAPOpenThreadEsp::open(uint16_t port, Handler handler) {
 
   std::memset(&socket->udp, 0, sizeof(socket->udp));
   socket->owner = this;
-  handler_ = handler;
 
   otSockAddr address;
   std::memset(&address, 0, sizeof(address));
@@ -125,21 +126,28 @@ bool HAPOpenThreadEsp::open(uint16_t port, Handler handler) {
     return false;
   }
 
+  // The OpenThread task cannot deliver anything before the lock is released.
+  handler_ = handler;
   socket_ = socket;
   port_ = port;
   return true;
 }
 
 void HAPOpenThreadEsp::close() {
+  closeSocket(false);
+}
+
+void HAPOpenThreadEsp::closeSocket(bool unbounded) {
   if (socket_ == nullptr) {
     return;
   }
 
-  Lock lock;
+  Lock lock(unbounded ? portMAX_DELAY : kLockWait);
   otInstance* ot = instance();
 
   // Without the lock the socket stays open and keeps its memory: closing it
   // unlocked would race the OpenThread task, and nothing here could report it.
+  // The destructor therefore waits for as long as it takes.
   if (!lock.held() || ot == nullptr) {
     return;
   }

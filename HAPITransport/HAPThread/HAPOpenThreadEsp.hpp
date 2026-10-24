@@ -46,6 +46,9 @@ class HAPOpenThreadEsp : public HAPIOpenThread {
   /** The socket and the receive trampoline live in the .cpp, with the OpenThread types. */
   struct Socket;
 
+  /** close(), waiting for the lock without a limit when `unbounded`. */
+  void closeSocket(bool unbounded);
+
   Handler handler_;
   Socket* socket_ = nullptr;
   uint16_t port_ = 0;

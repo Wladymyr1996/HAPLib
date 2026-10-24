@@ -89,7 +89,8 @@ test.
 | `HAPCodec` | bounds-checked reading and writing of every primitive: little-endian integers, IEEE-754 floats, UTF-8 names, HValue-compatible values |
 | `HAPFrame` | the 18-byte header, encode and decode, with a payload that is a view rather than a copy |
 | `HAPMessages` | all 28 payloads as typed structures, grouped into bind, data, control, link and service headers |
-| `HAPMac` | an address that can be compared, copied and printed by value |
+| `HAPNodeId` | a node's permanent identity - an 8-byte EUI-64 - that can be compared, ordered, copied and printed by value; converts to the six-byte MAC form the v1 frames and stored state still carry |
+| `HAPAddress` | where a transport sends bytes, opaque to everything above it, with the `zero()`, `master()` and `broadcast()` special values |
 | `HAPITransport` | the radio seam, with a memory-only backend on the host |
 | `HAPRouter` | parent, children, and the two forwarding rules — no radio, no timers, no state machine |
 | `HAPCrc16` | CRC-16/CCITT-FALSE, checked against the published vector |

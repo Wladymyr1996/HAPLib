@@ -76,7 +76,8 @@ hide circle
 
 package "Vocabulary" {
   class HAP <<entity>>
-  class HAPMac <<entity>>
+  class HAPAddress <<entity>>
+  class HAPNodeId <<entity>>
   class HAPPath <<entity>>
   class HAPCrc16 <<control>>
   class HAPRandom <<boundary>>
@@ -144,7 +145,8 @@ package "HCoreLib" <<Rectangle>> {
 }
 
 ' --- Vocabulary ----------------------------------------------------------
-HAPMac ..> HAP
+HAPNodeId ..> HAP
+HAPAddress ..> HAPNodeId
 HAPPath ..> HAP
 HAPCodec ..> HAP
 HAP ..> HValue : the five wire types ARE\nHValue's five, and HAPAssign\nis the one place a stored\nvalue changes TYPE
@@ -186,7 +188,7 @@ HAPNode ..> HAPCrc16 : descriptorRev is a CRC\nover the descriptor
 
 ' --- Mechanisms ----------------------------------------------------------
 HAPRouter ..> HAPFrame
-HAPRouter ..> HAPMac
+HAPRouter ..> HAPNodeId
 HAPBinder ..> HAPITransport : adds the encrypted peer
 HAPBinder ..> HAPRouter
 HAPBinder ..> HAPNode
@@ -206,7 +208,7 @@ HAPQueue ..> HSystemUtils
 HAPListenWindow ..> HAP
 HAPListenWindow ..> HTimer
 HAPModel ..> HAPMessages
-HAPModel ..> HAPMac
+HAPModel ..> HAPNodeId
 HAPModel ..> HAPPath
 HAPModel ..> HSystemUtils : how long since\na node was heard
 HAPStore ..> HAPNode : names
@@ -220,7 +222,8 @@ HAPStore ..> HRtcStore : the bind, mirrored\nso a wake need not\nmount a filesys
 ' network at, and the seam this project's own MeshRadio wraps to mount a
 ' filesystem before a frame that needs one is handled.
 HAPITransport ..> HAP : a size and a key length,\nno message and no frame
-HAPITransport ..> HAPMac
+HAPITransport ..> HAPAddress
+HAPITransport ..> HAPNodeId
 HAPITransport <|.. HAPEspNow
 HAPITransport <|.. HAPLoopback
 
@@ -246,7 +249,7 @@ note as Acyclic
   The library is a strict stack, and reading it bottom-up is reading the
   protocol itself:
 
-  HAP -> HAPPath/HAPMac/HAPCodec -> HAPFrame/HAPMessageParts -> the five
+  HAP -> HAPPath/HAPNodeId/HAPAddress/HAPCodec -> HAPFrame/HAPMessageParts -> the five
   message families -> HAPInstance -> HAPNode -> the mechanisms -> HAPStack
 
   Nothing below ever names anything above it. Three places where that took a

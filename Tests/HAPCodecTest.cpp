@@ -192,6 +192,44 @@ void testNullBuffers() noexcept {
   CHECK(!reader.ok());
 }
 
+void testNodeIds() noexcept {
+  const uint8_t raw[HAP_NODE_ID_LEN] = {0x24, 0x6F, 0x28, 0xFF, 0xFE, 0x00, 0x00, 0x07};
+  const HAPNodeId id = HAPNodeId::fromBytes(raw);
+
+  uint8_t buffer[10];
+  HAPWriter writer(buffer, sizeof(buffer));
+  writer.u8(0xAA);
+  writer.nodeId(id);
+
+  // Stored order, not a little-endian integer.
+  CHECK(writer.ok());
+  CHECK_BYTES(buffer, writer.size(), "AA 246F28FFFE000007");
+
+  HAPReader reader(buffer, writer.size());
+  CHECK(reader.u8() == 0xAA);
+  CHECK(reader.nodeId() == id);
+  CHECK(reader.ok());
+  CHECK(reader.remaining() == 0);
+}
+
+void testShortNodeIdIsZeroAndSticky() noexcept {
+  const uint8_t data[7] = {1, 2, 3, 4, 5, 6, 7};
+  HAPReader reader(data, sizeof(data));
+
+  CHECK(reader.nodeId().isZero());
+  CHECK(!reader.ok());
+
+  uint8_t buffer[7];
+  HAPWriter writer(buffer, sizeof(buffer));
+  HAPNodeId id;
+  id.bytes[0] = 1;
+  writer.nodeId(id);
+  CHECK(!writer.ok());
+
+  writer.u8(1);
+  CHECK(writer.size() == 0);
+}
+
 }  // namespace
 
 void runCodecTests() noexcept {
@@ -208,4 +246,6 @@ void runCodecTests() noexcept {
   testTruncatedNameIsRefused();
   testUnknownValueTypeStopsParsing();
   testNullBuffers();
+  testNodeIds();
+  testShortNodeIdIsZeroAndSticky();
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <HAP.h>
+#include <HAPNodeId/HAPNodeId.hpp>
 #include <HValue/HValue.hpp>
 
 #include <cstddef>
@@ -38,6 +39,10 @@
  * the WIRE is little-endian by specification, and a codec that only works
  * because of what it is compiled on is a trap for the first host tool built on
  * something else.
+ *
+ * The exception is a node id. It is eight raw bytes in the order HAPNodeId
+ * stores them (the canonical EUI-64 order), not an integer, so nodeId() copies
+ * rather than assembles.
  */
 
 /** @brief Writes HAP primitives into a caller-owned buffer. See file docs. */
@@ -59,6 +64,9 @@ class HAPWriter {
   void f32(float value) noexcept;
 
   void bytes(const uint8_t* data, size_t size) noexcept;
+
+  /** @brief A node id as its eight bytes, in stored order. */
+  void nodeId(const HAPNodeId& id) noexcept;
 
   /**
    * @brief A length-prefixed UTF-8 name.
@@ -126,6 +134,9 @@ class HAPReader {
    *         there. Nothing is copied.
    */
   const uint8_t* bytes(size_t size) noexcept;
+
+  /** @brief A node id; HAPNodeId::zero() if eight bytes are not there. */
+  HAPNodeId nodeId() noexcept;
 
   /** @brief A length-prefixed name; empty if the buffer ends first. */
   HAPName name() noexcept;

@@ -118,6 +118,10 @@ void HAPWriter::bytes(const uint8_t* data, size_t size) noexcept {
   size_ += size;
 }
 
+void HAPWriter::nodeId(const HAPNodeId& id) noexcept {
+  bytes(id.bytes, HAP_NODE_ID_LEN);
+}
+
 void HAPWriter::name(etl::string_view text) noexcept {
   const size_t length =
       utf8SafeLength(text.data(), text.size(), HAP_MAX_NAME_LEN);
@@ -261,6 +265,10 @@ const uint8_t* HAPReader::bytes(size_t size) noexcept {
   const uint8_t* start = buffer_ + offset_;
   offset_ += size;
   return start;
+}
+
+HAPNodeId HAPReader::nodeId() noexcept {
+  return HAPNodeId::fromBytes(bytes(HAP_NODE_ID_LEN));
 }
 
 HAPName HAPReader::name() noexcept {

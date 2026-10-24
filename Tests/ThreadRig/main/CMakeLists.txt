@@ -1,4 +1,4 @@
-idf_component_register(SRCS "main.cpp"
+idf_component_register(SRCS "main.cpp" "RigCommands.cpp" "RigThread.cpp"
                        INCLUDE_DIRS "."
                        # HAPLib is the transport under test; HCoreLib comes with
                        # it. The rest is bring-up: nvs and the event loop for

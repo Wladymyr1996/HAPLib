@@ -1,0 +1,23 @@
+# B3 big frame: 20 frames of 250 bytes (6LoWPAN fragments them), A to C, all intact.
+# Setup: wait for attachment, then remember every board's id and address.
+until @A !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab A_ID @A /HAPINFO id=(\w+)/
+grab A_ADDR @A /addr=(\S+)/
+grab A_HEAP0 @A /heap=(\d+)/
+until @B !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab B_ID @B /HAPINFO id=(\w+)/
+grab B_ADDR @B /addr=(\S+)/
+grab B_HEAP0 @B /heap=(\d+)/
+until @C !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab C_ID @C /HAPINFO id=(\w+)/
+grab C_ADDR @C /addr=(\S+)/
+grab C_HEAP0 @C /heap=(\d+)/
+
+mark m1
+@A !hap burst ${C_ADDR} 20 250 50
+expect @A /HAPBURST sent=20 failed=0/ timeout=15 since=m1
+count @C /HAPRX from=${A_ADDR} len=250 seq=\d+ fill=ok/ n=20 timeout=10 since=m1
+absent @C /fill=bad/ window=1 since=m1
+expect @C /HAPRX .* seq=0 / since=m1
+expect @C /HAPRX .* seq=19 / since=m1
+absent @B /HAPRX/ window=1 since=m1

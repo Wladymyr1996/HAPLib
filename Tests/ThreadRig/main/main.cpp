@@ -28,7 +28,8 @@
 #include "openthread/ip6.h"
 #include "openthread/thread.h"
 
-#include <HAPAddress/HAPAddress.hpp>
+#include "RigCommands.hpp"
+#include "RigThread.hpp"
 
 namespace {
 
@@ -48,7 +49,7 @@ constexpr uint8_t kMeshLocalPrefix[OT_MESH_LOCAL_PREFIX_SIZE] = {
  * Brings the node into the rig network. The same dataset is applied on every
  * boot, so a board always rejoins this network whatever it held before.
  */
-void startThread(otInstance* instance) {
+void joinRigNetwork(otInstance* instance) {
   otOperationalDataset dataset;
   otDatasetCreateNewNetwork(instance, &dataset);
 
@@ -106,8 +107,12 @@ extern "C" void app_main(void) {
 
   esp_openthread_lock_acquire(portMAX_DELAY);
   esp_openthread_cli_init();
-  startThread(esp_openthread_get_instance());
+  joinRigNetwork(esp_openthread_get_instance());
   esp_openthread_lock_release();
+
+  // Open the transport now that OpenThread runs (begin() fails before that).
+  // A failure is printed as HAPERR and leaves the CLI usable.
+  rig::startThread();
 
   // The CLI runs on a REPL over the USB port. esp_openthread_cli_create_task()
   // busy-spins on USB-Serial-JTAG and trips the task watchdog, so it is not
@@ -116,14 +121,14 @@ extern "C" void app_main(void) {
   esp_console_repl_config_t replConfig = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
   replConfig.prompt = "hap>";
   replConfig.max_cmdline_length = 256;
+  replConfig.task_stack_size = 6144;
   esp_console_dev_usb_serial_jtag_config_t device =
       ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
   ESP_ERROR_CHECK(
       esp_console_new_repl_usb_serial_jtag(&device, &replConfig, &repl));
   ESP_ERROR_CHECK(esp_openthread_cli_console_command_register());
 
-  // Touching a HAPLib symbol proves the component compiled for the target.
-  std::printf("HAPBOOT master=%d\n", HAPAddress::master().isMaster() ? 1 : 0);
+  rig::registerCommands();
 
   ESP_ERROR_CHECK(esp_console_start_repl(repl));
 }

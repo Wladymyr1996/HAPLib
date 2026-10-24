@@ -1,0 +1,36 @@
+# B1 attach: every board is attached within 30 s, the three ids are different and
+# equal `ot eui64`, and addr equals `ot ipaddr mleid`.
+# Setup: wait for attachment, then remember every board's id and address.
+until @A !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab A_ID @A /HAPINFO id=(\w+)/
+grab A_ADDR @A /addr=(\S+)/
+grab A_HEAP0 @A /heap=(\d+)/
+until @B !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab B_ID @B /HAPINFO id=(\w+)/
+grab B_ADDR @B /addr=(\S+)/
+grab B_HEAP0 @B /heap=(\d+)/
+until @C !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab C_ID @C /HAPINFO id=(\w+)/
+grab C_ADDR @C /addr=(\S+)/
+grab C_HEAP0 @C /heap=(\d+)/
+
+# id and address as the CLI sees them
+@A eui64
+expect @A /^${A_ID}$/
+@A ipaddr mleid
+expect @A /^${A_ADDR}$/
+@B eui64
+expect @B /^${B_ID}$/
+@B ipaddr mleid
+expect @B /^${B_ADDR}$/
+@C eui64
+expect @C /^${C_ID}$/
+@C ipaddr mleid
+expect @C /^${C_ADDR}$/
+
+# distinct ids
+@B !hap info
+absent @B /HAPINFO id=${A_ID} / window=1
+@C !hap info
+absent @C /HAPINFO id=${A_ID} / window=1
+absent @C /HAPINFO id=${B_ID} / window=1

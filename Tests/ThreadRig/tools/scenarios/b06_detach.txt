@@ -1,0 +1,29 @@
+# B6 detach: with Thread stopped on C, attached is 0 and send fails; after
+# `thread start` it attaches again and the send goes through.
+# Setup: wait for attachment, then remember every board's id and address.
+until @A !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab A_ID @A /HAPINFO id=(\w+)/
+grab A_ADDR @A /addr=(\S+)/
+grab A_HEAP0 @A /heap=(\d+)/
+until @B !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab B_ID @B /HAPINFO id=(\w+)/
+grab B_ADDR @B /addr=(\S+)/
+grab B_HEAP0 @B /heap=(\d+)/
+until @C !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab C_ID @C /HAPINFO id=(\w+)/
+grab C_ADDR @C /addr=(\S+)/
+grab C_HEAP0 @C /heap=(\d+)/
+
+@C thread stop
+expect @C /HAPSTATE attached=0/ timeout=10
+@C !hap info
+expect @C /HAPINFO .* attached=0/
+@C !hap send ${A_ADDR} x
+expect @C /HAPTX ok=0/
+
+@C thread start
+expect @C /HAPSTATE attached=1/ timeout=40
+mark m1
+@C !hap send ${A_ADDR} y
+expect @C /HAPTX ok=1/ since=m1
+expect @A /HAPRX from=${C_ADDR} len=1 seq=- fill=- data=y/ timeout=5 since=m1

@@ -1,0 +1,57 @@
+# B4 anycast: with the HAP-Master service on B, C's send to master reaches B with
+# C's ML-EID as from. B sending to master reaches nobody (a server does not hear
+# itself). With the service removed, nobody receives.
+# Setup: wait for attachment, then remember every board's id and address.
+until @A !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab A_ID @A /HAPINFO id=(\w+)/
+grab A_ADDR @A /addr=(\S+)/
+grab A_HEAP0 @A /heap=(\d+)/
+until @B !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab B_ID @B /HAPINFO id=(\w+)/
+grab B_ADDR @B /addr=(\S+)/
+grab B_HEAP0 @B /heap=(\d+)/
+until @C !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab C_ID @C /HAPINFO id=(\w+)/
+grab C_ADDR @C /addr=(\S+)/
+grab C_HEAP0 @C /heap=(\d+)/
+
+# Start from a known state: no service anywhere (an error here is harmless).
+@A service remove 11259375 4841502d4d6173746572
+@A netdata register
+@B service remove 11259375 4841502d4d6173746572
+@B netdata register
+untilabsent @C netdata show => /4841502d4d6173746572/ timeout=30
+
+# B becomes the server
+@B service add 11259375 4841502d4d6173746572 00000001
+@B netdata register
+until @C netdata show => /4841502d4d6173746572/ timeout=20
+
+mark m1
+@C !hap send master x
+expect @C /HAPTX ok=1/ since=m1
+count @B /HAPRX from=${C_ADDR} len=1 seq=- fill=- data=x/ n=1 timeout=5 since=m1
+absent @A /HAPRX/ window=1 since=m1
+
+# the server itself
+mark m2
+@B !hap send master x
+expect @B /HAPTX ok=1/ since=m2
+absent @A /HAPRX/ window=2 since=m2
+absent @B /HAPRX/ window=0.1 since=m2
+absent @C /HAPRX/ window=0.1 since=m2
+
+# the service goes away; wait until the sender no longer sees it
+@B service remove 11259375 4841502d4d6173746572
+@B netdata register
+untilabsent @C netdata show => /4841502d4d6173746572/ timeout=30
+
+mark m3
+@C !hap send master x
+expect @C /HAPTX ok=1/ since=m3
+absent @A /HAPRX/ window=2 since=m3
+absent @B /HAPRX/ window=0.1 since=m3
+absent @C /HAPRX/ window=0.1 since=m3
+
+# Optional, for two servers: add the service on A as well, repeat the send from C
+# and expect exactly one of A and B to receive it.

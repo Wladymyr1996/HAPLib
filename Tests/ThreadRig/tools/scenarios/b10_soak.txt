@@ -1,0 +1,33 @@
+# B10 soak: A to B and B to A at 20 frames per second, 500 frames each. Loss is
+# reported, not judged (about 0 expected on a bench). Free heap is printed before
+# and after; look for a steady decrease.
+# Setup: wait for attachment, then remember every board's id and address.
+until @A !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab A_ID @A /HAPINFO id=(\w+)/
+grab A_ADDR @A /addr=(\S+)/
+grab A_HEAP0 @A /heap=(\d+)/
+until @B !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab B_ID @B /HAPINFO id=(\w+)/
+grab B_ADDR @B /addr=(\S+)/
+grab B_HEAP0 @B /heap=(\d+)/
+
+mark m1
+@A !hap burst ${B_ADDR} 500 32 50
+@B !hap burst ${A_ADDR} 500 32 50
+expect @A /HAPBURST sent=\d+ failed=\d+/ timeout=60 since=m1
+expect @B /HAPBURST sent=\d+ failed=\d+/ timeout=60 since=m1
+sleep 3
+
+count @B /HAPRX from=${A_ADDR} len=32 seq=\d+ fill=ok/ save=B_RX timeout=1 since=m1
+count @A /HAPRX from=${B_ADDR} len=32 seq=\d+ fill=ok/ save=A_RX timeout=1 since=m1
+calc A2B_LOSS = 500 - ${B_RX}
+calc B2A_LOSS = 500 - ${A_RX}
+print LOSS a2b=${A2B_LOSS} b2a=${B2A_LOSS}
+absent @A /fill=bad/ window=0.1 since=m1
+absent @B /fill=bad/ window=0.1 since=m1
+
+@A !hap info
+grab A_HEAP1 @A /heap=(\d+)/
+@B !hap info
+grab B_HEAP1 @B /heap=(\d+)/
+print HEAP A before=${A_HEAP0} after=${A_HEAP1}, B before=${B_HEAP0} after=${B_HEAP1}

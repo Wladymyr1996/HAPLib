@@ -1,0 +1,55 @@
+# B8 sleepy: C becomes a sleepy end device (poll period 3 s). A to C arrives within
+# the poll period plus 2 s, C to A and C to master arrive, and A's multicast does
+# not reach C. C is put back to `rdn` at the end.
+# Setup: wait for attachment, then remember every board's id and address.
+until @A !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab A_ID @A /HAPINFO id=(\w+)/
+grab A_ADDR @A /addr=(\S+)/
+grab A_HEAP0 @A /heap=(\d+)/
+until @B !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab B_ID @B /HAPINFO id=(\w+)/
+grab B_ADDR @B /addr=(\S+)/
+grab B_HEAP0 @B /heap=(\d+)/
+until @C !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab C_ID @C /HAPINFO id=(\w+)/
+grab C_ADDR @C /addr=(\S+)/
+grab C_HEAP0 @C /heap=(\d+)/
+
+@C mode -
+sleep 5
+until @C state => /^child$/ timeout=40 every=2
+@C pollperiod 3000
+until @C !hap info => /attached=1/ timeout=30
+
+mark m1
+@A !hap send ${C_ADDR} slow
+expect @A /HAPTX ok=1/ since=m1
+expect @C /HAPRX from=${A_ADDR} len=4 seq=- fill=- data=slow/ timeout=5 since=m1
+
+mark m2
+@C !hap send ${A_ADDR} up
+expect @C /HAPTX ok=1/ since=m2
+expect @A /HAPRX from=${C_ADDR} len=2 seq=- fill=- data=up/ timeout=5 since=m2
+
+# to master, with the service on A (a sleepy node sees stable network data only)
+@A service add 11259375 4841502d4d6173746572 00000001
+@A netdata register
+until @C netdata show => /4841502d4d6173746572/ timeout=40 every=4
+mark m3
+@C !hap send master m
+expect @C /HAPTX ok=1/ since=m3
+expect @A /HAPRX from=${C_ADDR} len=1 seq=- fill=- data=m/ timeout=5 since=m3
+@A service remove 11259375 4841502d4d6173746572
+@A netdata register
+
+# multicast goes to rx-on nodes only: wait longer than a poll period
+mark m4
+@A !hap mcast mc
+expect @A /HAPTX ok=1/ since=m4
+expect @B /HAPRX from=${A_ADDR} len=2 seq=- fill=- data=mc/ timeout=5 since=m4
+absent @C /HAPRX/ window=6 since=m4
+
+# back to a normal node
+@C mode rdn
+until @C state => /^(child|router|leader)$/ timeout=40 every=2
+until @C !hap info => /attached=1/ timeout=30

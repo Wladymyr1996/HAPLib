@@ -1,0 +1,27 @@
+# B2 unicast: A to B and B to C arrive exactly once, with the sender's ML-EID as
+# from, and nothing reaches the third board.
+# Setup: wait for attachment, then remember every board's id and address.
+until @A !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab A_ID @A /HAPINFO id=(\w+)/
+grab A_ADDR @A /addr=(\S+)/
+grab A_HEAP0 @A /heap=(\d+)/
+until @B !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab B_ID @B /HAPINFO id=(\w+)/
+grab B_ADDR @B /addr=(\S+)/
+grab B_HEAP0 @B /heap=(\d+)/
+until @C !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab C_ID @C /HAPINFO id=(\w+)/
+grab C_ADDR @C /addr=(\S+)/
+grab C_HEAP0 @C /heap=(\d+)/
+
+mark m1
+@A !hap send ${B_ADDR} hello
+expect @A /HAPTX ok=1/ since=m1
+count @B /HAPRX from=${A_ADDR} len=5 seq=- fill=- data=hello/ n=1 timeout=5 since=m1
+absent @C /HAPRX/ window=2 since=m1
+
+mark m2
+@B !hap send ${C_ADDR} hello
+expect @B /HAPTX ok=1/ since=m2
+count @C /HAPRX from=${B_ADDR} len=5 seq=- fill=- data=hello/ n=1 timeout=5 since=m2
+absent @A /HAPRX/ window=2 since=m2

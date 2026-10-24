@@ -1,0 +1,34 @@
+# B9 overflow: B stops delivering for 3 s while A sends 20 frames. The queue (8
+# slots) keeps the first frames, the rest are dropped and counted, and B neither
+# panics nor trips a watchdog.
+# Setup: wait for attachment, then remember every board's id and address.
+until @A !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab A_ID @A /HAPINFO id=(\w+)/
+grab A_ADDR @A /addr=(\S+)/
+grab A_HEAP0 @A /heap=(\d+)/
+until @B !hap info => /HAPINFO id=\w+ addr=\S+ attached=1/ timeout=30
+grab B_ID @B /HAPINFO id=(\w+)/
+grab B_ADDR @B /addr=(\S+)/
+grab B_HEAP0 @B /heap=(\d+)/
+
+@B !hap info
+grab B_DROP0 @B /dropped=(\d+)/
+mark m1
+@B !hap stall 3000
+@A !hap burst ${B_ADDR} 20 32 20
+expect @A /HAPBURST sent=20 failed=0/ timeout=10 since=m1
+sleep 4
+@B !hap info
+grab B_DROP1 @B /dropped=(\d+)/
+calc DROPPED = ${B_DROP1} - ${B_DROP0}
+print dropped during the stall: ${DROPPED}
+assert ${DROPPED} >= 10
+assert ${DROPPED} <= 14
+
+count @B /HAPRX from=${A_ADDR} len=32 seq=\d+ fill=ok/ save=RECEIVED timeout=1 since=m1
+calc TOTAL = ${RECEIVED} + ${DROPPED}
+assert ${TOTAL} == 20
+expect @B /HAPRX .* seq=0 / since=m1
+expect @B /HAPRX .* seq=7 / since=m1
+absent @B /HAPRX .* seq=(8|9|1\d) / window=0.1 since=m1
+absent @B /Guru Meditation|task_wdt|abort\(\)|Task watchdog/ window=0.1 since=m1

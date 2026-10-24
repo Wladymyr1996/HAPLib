@@ -18,7 +18,7 @@
  * library work rather than each application's.
  *
  * @code
- *   HAPEspNow radio;
+ *   MyTransport radio;  // any HAPITransport
  *   HAPNode node;
  *   HAPStack stack(radio, node);
  *

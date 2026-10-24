@@ -7,8 +7,9 @@
 # exercise far more thoroughly than two boards on a bench can.
 #
 # The radio lives behind HAPITransport with exactly one backend compiled in:
-# ESP-NOW on target, an in-process simulated bus on the host. That seam is what
-# lets a whole tree of nodes be built inside one unit test.
+# an in-process simulated bus on the host, and nothing on target until the
+# Thread backend arrives. That seam is what lets a whole tree of nodes be built
+# inside one unit test.
 #
 # See Docs/ImplementingStatus.md for what is built so far.
 #######################################################################
@@ -46,24 +47,18 @@ set(HAPLIB_SRCS
 set(HAPLIB_INCLUDE_DIRS ".")
 
 # Exactly one transport backend is compiled in, the way HCoreLib chooses a
-# filesystem: ESP-NOW on target, and on the host a bus made of memory that a
-# whole tree of simulated nodes attaches to. The interface is virtual - unlike
-# HCoreLib's platform seams - because a test has several transports alive at
-# once.
-if(ESP_PLATFORM)
-  list(APPEND HAPLIB_SRCS "HAPITransport/HAPEspNow/HAPEspNow.cpp")
-else()
+# filesystem: on the host a bus made of memory that a whole tree of simulated
+# nodes attaches to, and on target none yet - the Thread backend adds itself
+# here. The interface is virtual - unlike HCoreLib's platform seams - because a
+# test has several transports alive at once.
+if(NOT ESP_PLATFORM)
   list(APPEND HAPLIB_SRCS "HAPITransport/HAPLoopback/HAPLoopback.cpp")
 endif()
 
 if(ESP_PLATFORM)
-  # esp_wifi is PRIVATE: HAPEspNow.hpp deliberately declares no ESP type, so the
-  # radio's headers stop at this component's own translation unit and nothing
-  # including a HAPLib header inherits them.
   idf_component_register(SRCS ${HAPLIB_SRCS}
                          INCLUDE_DIRS ${HAPLIB_INCLUDE_DIRS}
-                         REQUIRES HCoreLib
-                         PRIV_REQUIRES esp_wifi esp_netif esp_event)
+                         REQUIRES HCoreLib)
 
   target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 else()

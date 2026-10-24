@@ -55,7 +55,7 @@ Gateway ──1── Heating controller ──2── Thermometer (bedroom, bat
 | `HAPCodec` | bounds-checked primitives, with sticky failure so one check covers a whole message |
 | `HAPMessages` | all 26 payloads as typed structures |
 | `HAPRouter` | parent, children, and the two forwarding rules — no radio, no timers |
-| `HAPITransport` | the radio seam: ESP-NOW on target, an in-memory bus on the host |
+| `HAPITransport` | the radio seam: an in-memory bus on the host, no on-target backend yet |
 | `HAPNode` · `HAPInstance` · `HAPClasses` | this device: its instances, their ports, its descriptor revision |
 | `HAPBinder` · `HAPRandom` | both halves of the handshake, keys, and the channel sweep |
 | `HAPStore` | a bind that survives a reboot: three config files and an RTC mirror |
@@ -75,7 +75,7 @@ Then `REQUIRES HAPLib` in whichever component uses it. The whole of a leaf node
 is:
 
 ```cpp
-HAPEspNow radio;
+MyTransport radio;  // any HAPITransport
 HAPNode node;
 HAPStack stack(radio, node);
 
@@ -153,9 +153,10 @@ byte on the wire — for exactly that reason.
 
 ### The one thing they cannot cover
 
-`HAPEspNow` — the radio. It compiles for the ESP32-C6 and is exercised only on
-the bench; [Docs/TestPlan.md](Docs/TestPlan.md) is how, and its §11 maps each
-bench milestone to the simulated test that already covers the logic behind it.
+The radio itself. No on-target transport is in the library yet; once there is,
+it is exercised only on the bench; [Docs/TestPlan.md](Docs/TestPlan.md) is how,
+and its §11 maps each bench milestone to the simulated test that already covers
+the logic behind it.
 
 ## Continuous integration
 
@@ -209,7 +210,7 @@ Three things a runner needs to know:
    time and never sees this; a developer who adds that file locally should wipe
    the build directory.
 3. **The firmware job proves compilation, not behaviour.** It catches what the
-   host build cannot — target-only code such as `HAPEspNow` and the RTC mirror —
+   host build cannot — target-only code such as the RTC mirror —
    and nothing more.
 
 On a developer's machine there is one more: **do not run the host tests from a
@@ -235,6 +236,4 @@ is where HCoreLib already looks first. Nothing else here refers to anything outs
 ## Dependencies
 
 `HCoreLib`, and through it [ETL](https://www.etlcpp.com/) — header-only, so there is
-nothing to link. On target, `esp_wifi` is a **private** requirement:
-`HAPEspNow.hpp` deliberately declares no ESP type, so the radio's headers stop at
-this component and nothing including a HAPLib header inherits them.
+nothing to link.

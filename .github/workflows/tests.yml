@@ -8,10 +8,11 @@
 #
 # There is no ESP-IDF job here, for the same reason HCoreLib has none: HAPLib is
 # a component rather than a program, and the half of it that only exists on
-# target - HAPEspNow, and the radio behind it - is covered by the firmware
-# repositories that consume this one. What the host build DOES cover is nearly
-# all of it: addressing, framing, routing, binding and links, against the
-# in-process transport that lets a whole tree of nodes live inside one test.
+# target - a radio transport, none of which is in this library yet - will be
+# covered by the firmware repositories that consume this one. What the host
+# build DOES cover is nearly all of it: addressing, framing, routing, binding
+# and links, against the in-process transport that lets a whole tree of nodes
+# live inside one test.
 #######################################################################
 
 name: Tests

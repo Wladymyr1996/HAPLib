@@ -58,6 +58,7 @@ add_executable(haptests
     "HAPMessagesTest.cpp"
     "HAPRouterTest.cpp"
     "HAPLoopbackTest.cpp"
+    "HAPThreadTest.cpp"
     "HAPTreeTest.cpp"
     "HAPNodeTest.cpp"
     "HAPBinderTest.cpp"
@@ -69,6 +70,14 @@ add_executable(haptests
     "HAPSpecTest.cpp")
 
 target_link_libraries(haptests PRIVATE HAPLib)
+
+# Only the thread stress test in HAPThreadTest.cpp needs it, and a toolchain
+# without it just loses that one test.
+find_package(Threads)
+if(Threads_FOUND)
+  target_link_libraries(haptests PRIVATE Threads::Threads)
+  target_compile_definitions(haptests PRIVATE HAP_TEST_THREADS=1)
+endif()
 
 if(MSVC)
   # /utf-8 is not optional here: HAPSpecTest.cpp contains Cyrillic string

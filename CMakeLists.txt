@@ -7,9 +7,8 @@
 # exercise far more thoroughly than two boards on a bench can.
 #
 # The radio lives behind HAPITransport with exactly one backend compiled in:
-# an in-process simulated bus on the host, and nothing on target until the
-# Thread backend arrives. That seam is what lets a whole tree of nodes be built
-# inside one unit test.
+# an in-process simulated bus on the host, and a Thread backend on target. That
+# seam is what lets a whole tree of nodes be built inside one unit test.
 #
 # See Docs/ImplementingStatus.md for what is built so far.
 #######################################################################
@@ -24,6 +23,8 @@ set(HAPLIB_SRCS
     "HAPFrame/HAPFrame.cpp"
     "HAPInstance/HAPInstance.cpp"
     "HAPITransport/HAPITransport.cpp"
+    "HAPITransport/HAPThread/HAPIOpenThread.cpp"
+    "HAPITransport/HAPThread/HAPThread.cpp"
     "HAPLinks/HAPLinks.cpp"
     "HAPListenWindow/HAPListenWindow.cpp"
     "HAPModel/HAPModel.cpp"
@@ -48,9 +49,10 @@ set(HAPLIB_INCLUDE_DIRS ".")
 
 # Exactly one transport backend is compiled in, the way HCoreLib chooses a
 # filesystem: on the host a bus made of memory that a whole tree of simulated
-# nodes attaches to, and on target none yet - the Thread backend adds itself
-# here. The interface is virtual - unlike HCoreLib's platform seams - because a
-# test has several transports alive at once.
+# nodes attaches to, and on target the Thread backend. HAPThread itself is
+# portable and builds everywhere, so the host tests can run it against a fake
+# of the OpenThread calls. The interface is virtual - unlike HCoreLib's
+# platform seams - because a test has several transports alive at once.
 if(NOT ESP_PLATFORM)
   list(APPEND HAPLIB_SRCS "HAPITransport/HAPLoopback/HAPLoopback.cpp")
 endif()

@@ -8,8 +8,6 @@
 
 #include <cstring>
 
-constexpr uint8_t HAPBinder::kSweepChannels[];
-
 HAPBinder::HAPBinder(HAPITransport& transport, HAPRouter& router,
                      const HAPNode& node) noexcept
     : transport_(transport),
@@ -17,7 +15,6 @@ HAPBinder::HAPBinder(HAPITransport& transport, HAPRouter& router,
       node_(node),
       window_(HAP_BIND_WINDOW_MS),
       announce_(HAP_ANNOUNCE_PERIOD_MS),
-      dwell_(HAP_SWEEP_DWELL_MS),
       confirm_(HAP_CONFIRM_TIMEOUT_MS) {}
 
 // ---------------------------------------------------------------------------
@@ -130,7 +127,7 @@ bool HAPBinder::sendAccept(const HAPAddress& to, uint8_t childIndex) noexcept {
 
   HAPBindAccept accept;
   accept.childIndex = childIndex;
-  accept.channel = transport_.channel();
+  accept.channel = 0;  // Still on the wire, but nothing reads it any more.
   accept.masterName = node_.name();
   std::memcpy(accept.linkKey, linkKey_, sizeof(linkKey_));
 
@@ -251,16 +248,10 @@ bool HAPBinder::announce() noexcept {
   state_ = State::Announcing;
   window_.start(HAP_BIND_WINDOW_MS);
   announce_.start(HAP_ANNOUNCE_PERIOD_MS);
-  dwell_.start(HAP_SWEEP_DWELL_MS);
 
-  homeChannel_ = transport_.channel();
-  sweepIndex_ = 0;
-
-  // An unbound node has no idea which channel its future parent is on, so it
-  // starts on its own and works through the rest as the dwell expires.
   sendAnnouncement();
 
-  HInfo("announcing on channel %u", transport_.channel());
+  HInfo("announcing");
   return true;
 }
 
@@ -269,22 +260,13 @@ void HAPBinder::stopAnnouncing() noexcept {
     return;
   }
 
-  if (transport_.channel() != homeChannel_ && homeChannel_ != 0) {
-    transport_.setChannel(homeChannel_);
-  }
-
   window_.stop();
   announce_.stop();
-  dwell_.stop();
   state_ = State::Idle;
 }
 
 bool HAPBinder::isAnnouncing() const noexcept {
   return state_ == State::Announcing;
-}
-
-uint8_t HAPBinder::sweepChannel() const noexcept {
-  return state_ == State::Announcing ? transport_.channel() : 0;
 }
 
 bool HAPBinder::sendAnnouncement() noexcept {
@@ -333,12 +315,6 @@ bool HAPBinder::handleAccept(const HAPAddress& from, const HAPFrame& frame) noex
     return true;
   }
 
-  // Whatever channel the sweep had reached, the network's channel is the one
-  // the master just named - stay there.
-  if (accept.channel != 0 && accept.channel != transport_.channel()) {
-    transport_.setChannel(accept.channel);
-  }
-
   std::memcpy(linkKey_, accept.linkKey, sizeof(linkKey_));
 
   router_.setParent(from.nodeId(), accept.childIndex);
@@ -351,14 +327,13 @@ bool HAPBinder::handleAccept(const HAPAddress& from, const HAPFrame& frame) noex
 
   window_.stop();
   announce_.stop();
-  dwell_.stop();
   state_ = State::Bound;
 
-  HInfo("bound to %s '%s' as child %u on channel %u", from.toString().c_str(),
-        accept.masterName.c_str(), accept.childIndex, transport_.channel());
+  HInfo("bound to %s '%s' as child %u", from.toString().c_str(),
+        accept.masterName.c_str(), accept.childIndex);
 
   if (onBound_.is_valid()) {
-    onBound_(from, accept.childIndex, linkKey_, transport_.channel());
+    onBound_(from, accept.childIndex, linkKey_, 0);
   }
 
   return true;
@@ -442,17 +417,6 @@ void HAPBinder::update() noexcept {
       if (window_.isExpired()) {
         HInfo("nobody answered");
         stopAnnouncing();
-        break;
-      }
-
-      if (dwell_.isExpired()) {
-        // Nobody on this channel. A master listens only on its own, so an
-        // unbound node has to go looking.
-        sweepIndex_ = (sweepIndex_ + 1) % kSweepCount;
-        transport_.setChannel(kSweepChannels[sweepIndex_]);
-        dwell_.reset();
-        announce_.reset();
-        sendAnnouncement();
         break;
       }
 

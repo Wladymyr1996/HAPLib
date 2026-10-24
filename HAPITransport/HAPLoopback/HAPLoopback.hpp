@@ -9,14 +9,13 @@
  * @brief A radio made of memory, so a whole network fits inside one test.
  *
  * Host builds only. Several nodes attach to one HAPLoopbackBus, each with its
- * own address and channel, and frames move between them when the
+ * own address, and frames move between them when the
  * test says so.
  *
  * ## It is deliberately unhelpful
  * A simulator that delivers everything to everybody would let code pass that
  * cannot work on a real board, so this one is strict about what a radio is:
  *
- * - two nodes on different channels **cannot hear each other**, at all;
  * - nothing is delivered until the test pumps the bus, so no send ever
  *   completes inside the caller's own stack frame.
  *
@@ -80,7 +79,6 @@ class HAPLoopbackBus {
   struct Packet {
     HAPAddress from;
     HAPAddress to;
-    uint8_t channel = 0;
     uint8_t data[HAP_MAX_FRAME_SIZE] = {};
     size_t size = 0;
   };
@@ -119,8 +117,7 @@ class HAPLoopback : public HAPITransport {
 
   ~HAPLoopback() override;
 
-  bool begin(uint8_t channel) override;
-  uint8_t channel() const noexcept override;
+  bool begin() override;
   const HAPNodeId& localId() const noexcept override;
 
   /** @brief The address other nodes on the bus reach this one at. */
@@ -130,9 +127,6 @@ class HAPLoopback : public HAPITransport {
   bool broadcast(const uint8_t* data, size_t size) override;
   void onReceive(Receiver receiver) override;
   void onSendResult(SendResult result) override;
-
-  /** @brief Moves this node to another channel, deafening it to the rest. */
-  bool setChannel(uint8_t channel) override;
 
   /** @brief Frames this node has handed to the bus, and taken off it. */
   size_t sentCount() const noexcept;
@@ -152,7 +146,6 @@ class HAPLoopback : public HAPITransport {
   HAPLoopbackBus& bus_;
   Receiver receiver_;
   SendResult sendResult_;
-  uint8_t channel_ = 0;
   bool started_ = false;
 
   size_t sent_ = 0;

@@ -24,7 +24,7 @@
  *
  *   node.begin(HAPDeviceType::Sensor, HAPCaps::BatteryPowered, "Bedroom");
  *   node.addInstance(HAPClassId::Thermometer, "Temp");
- *   stack.begin(1);
+ *   stack.begin();
  *
  *   // every HCORELIB_TICK_MS
  *   stack.update();
@@ -67,7 +67,7 @@ class HAPStack {
    * was bound before the reboot is bound after it, with no handshake and no
    * user involved.
    */
-  bool begin(uint8_t channel) noexcept;
+  bool begin() noexcept;
 
   /** @brief Drives everything. Call every HCORELIB_TICK_MS. */
   void update() noexcept;
@@ -224,6 +224,8 @@ class HAPStack {
 
   /** @brief This node gained a child, or gained a parent. */
   void onChildBound(HAPBinder::ChildBoundHook hook) noexcept;
+
+  /** @brief As above, for a parent. The hook's `channel` is always 0 since HT-4. */
   void onBound(HAPBinder::BoundHook hook) noexcept;
 
   /** Frames this node has sent and received, for a log line. */
@@ -277,6 +279,7 @@ class HAPStack {
    */
   bool announceChild(const HAPChild& child) noexcept;
 
+  /** `channel` is always 0 since HT-4; the stored bind still has the field. */
   void bound(const HAPAddress& parent, uint8_t index, const uint8_t* linkKey,
              uint8_t channel) noexcept;
   void deliverLink(const HAPPortRef& destination, const HValue& value) noexcept;

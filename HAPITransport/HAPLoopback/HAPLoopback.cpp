@@ -105,12 +105,8 @@ void HAPLoopbackBus::deliver(const Packet& packet) noexcept {
       continue;
     }
 
-    // Each of these is a real way to receive nothing, and each one looks
-    // exactly like a protocol bug from the far end.
-    if (node->channel() != packet.channel) {
-      continue;
-    }
-
+    // A pair of nodes that cannot hear each other receives nothing, and it
+    // looks exactly like a protocol bug from the far end.
     if (!isReachable(packet.from.nodeId(), node->localId())) {
       continue;
     }
@@ -187,14 +183,9 @@ HAPLoopback::~HAPLoopback() {
   bus_.detach(*this);
 }
 
-bool HAPLoopback::begin(uint8_t channel) {
-  channel_ = channel;
+bool HAPLoopback::begin() {
   started_ = true;
   return true;
-}
-
-uint8_t HAPLoopback::channel() const noexcept {
-  return channel_;
 }
 
 const HAPNodeId& HAPLoopback::localId() const noexcept {
@@ -213,7 +204,6 @@ bool HAPLoopback::send(const HAPAddress& to, const uint8_t* data, size_t size) {
   HAPLoopbackBus::Packet packet;
   packet.from = address_;
   packet.to = to;
-  packet.channel = channel_;
   std::memcpy(packet.data, data, size);
   packet.size = size;
 
@@ -233,7 +223,6 @@ bool HAPLoopback::broadcast(const uint8_t* data, size_t size) {
   HAPLoopbackBus::Packet packet;
   packet.from = address_;
   packet.to = HAPAddress::broadcast();
-  packet.channel = channel_;
   std::memcpy(packet.data, data, size);
   packet.size = size;
 
@@ -265,11 +254,6 @@ void HAPLoopback::receive(const HAPLoopbackBus::Packet& packet) noexcept {
   if (receiver_.is_valid()) {
     receiver_(packet.from, packet.data, packet.size);
   }
-}
-
-bool HAPLoopback::setChannel(uint8_t channel) {
-  channel_ = channel;
-  return true;
 }
 
 size_t HAPLoopback::sentCount() const noexcept {

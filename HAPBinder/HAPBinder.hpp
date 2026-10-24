@@ -13,16 +13,6 @@
 #define HAP_ANNOUNCE_PERIOD_MS 500
 #endif
 
-/**
- * How long an announcing node stays on one channel before trying the next.
- *
- * It has to be long enough for a master sitting on that channel to hear at
- * least one announcement and answer it, so it is several announce periods.
- */
-#ifndef HAP_SWEEP_DWELL_MS
-#define HAP_SWEEP_DWELL_MS 1500
-#endif
-
 /** How long a master waits for the confirmation that completes a bind. */
 #ifndef HAP_CONFIRM_TIMEOUT_MS
 #define HAP_CONFIRM_TIMEOUT_MS 2000
@@ -77,7 +67,7 @@ class HAPBinder {
     Idle,        ///< Nothing in progress.
     Listening,   ///< Master: the window is open.
     Accepting,   ///< Master: accepted somebody, waiting for their confirmation.
-    Announcing,  ///< Slave: shouting, and sweeping channels.
+    Announcing,  ///< Slave: shouting.
     Bound        ///< Slave: finished. One parent, for life.
   };
 
@@ -139,9 +129,6 @@ class HAPBinder {
   bool isListening() const noexcept;
   bool isAnnouncing() const noexcept;
 
-  /** @brief Which channel the sweep is currently on; 0 when not sweeping. */
-  uint8_t sweepChannel() const noexcept;
-
   /**
    * @brief Master: a child completed its bind.
    *
@@ -155,7 +142,8 @@ class HAPBinder {
    * @brief Slave: this node now has a parent.
    *
    * The moment to persist the parent, its index and the link key, because
-   * everything after this depends on surviving a reboot.
+   * everything after this depends on surviving a reboot. `channel` is always 0
+   * since HT-4.
    */
   using BoundHook = etl::delegate<void(const HAPAddress& parent, uint8_t index,
                                        const uint8_t* linkKey,
@@ -166,14 +154,6 @@ class HAPBinder {
   const uint8_t* linkKey() const noexcept;
 
  private:
-  /** Channels tried while announcing, in the order most networks use them. */
-  //
-  // 1, 6 and 11 first because they do not overlap and almost every network is
-  // on one of them - including anything left at HAP_DEFAULT_CHANNEL.
-  static constexpr uint8_t kSweepChannels[] = {1, 6, 11, 2,  3,  4,  5,
-                                               7, 8, 9,  10, 12, 13};
-  static constexpr size_t kSweepCount = sizeof(kSweepChannels);
-
   bool sendAnnouncement() noexcept;
   bool sendAccept(const HAPAddress& to, uint8_t childIndex) noexcept;
   bool sendConfirm() noexcept;
@@ -196,11 +176,7 @@ class HAPBinder {
 
   HTimer window_;    ///< The master's 60 s, or the slave's.
   HTimer announce_;  ///< Between announcements.
-  HTimer dwell_;     ///< On one channel of the sweep.
   HTimer confirm_;   ///< Waiting for a confirmation, or for the key switch.
-
-  size_t sweepIndex_ = 0;
-  uint8_t homeChannel_ = 0;  ///< Where a sweep started, to go back to.
 
   /** Master: who was accepted, and as which child, until they confirm. */
   HAPAddress pending_;

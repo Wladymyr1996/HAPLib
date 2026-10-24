@@ -15,22 +15,16 @@ HAPStack::HAPStack(HAPITransport& transport, HAPNode& node) noexcept
 // Start-up
 // ---------------------------------------------------------------------------
 
-bool HAPStack::begin(uint8_t channel) noexcept {
+bool HAPStack::begin() noexcept {
   HAPStore::init();
 
   // What this node already knew. A node bound before the reboot is bound after
   // it, with no handshake and nobody pressing anything.
-  uint8_t startChannel = channel;
-
   if (HAPStore::loadBind(bind_)) {
     router_.setParent(bind_.parent, bind_.indexAtParent);
-
-    if (bind_.channel != 0) {
-      startChannel = bind_.channel;
-    }
   }
 
-  if (!transport_.begin(startChannel)) {
+  if (!transport_.begin()) {
     return false;
   }
 
@@ -129,7 +123,7 @@ bool HAPStack::begin(uint8_t channel) noexcept {
 
   started_ = true;
 
-  HInfo("%s on channel %u, %u children, %s", node_.name().c_str(), startChannel,
+  HInfo("%s, %u children, %s", node_.name().c_str(),
         static_cast<unsigned>(router_.childCount()),
         router_.isRoot() ? "root" : "bound");
 

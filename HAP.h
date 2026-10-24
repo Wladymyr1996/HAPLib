@@ -259,23 +259,6 @@ static_assert(HAP_HEADER_SIZE + HAP_MAX_PAYLOAD_SIZE == HAP_MAX_FRAME_SIZE,
 #define HAP_OFFLINE_INTERVALS 3
 #endif
 
-/**
- * The channel a network runs on until something says otherwise.
- *
- * ESP-NOW has no channel negotiation: every node has to be on the same one or
- * they are simply deaf to each other. A master brings its radio up here, an
- * unbound slave starts here and sweeps if nobody answers, and the channel a
- * slave is finally told to use arrives in BindAccept and is stored with the
- * bind.
- *
- * Change it only for a whole network at once. One node with a different default
- * is a node that binds slowly - it has to sweep to find everybody else - and a
- * whole network with a different one costs nothing.
- */
-#ifndef HAP_DEFAULT_CHANNEL
-#define HAP_DEFAULT_CHANNEL 1
-#endif
-
 // ---------------------------------------------------------------------------
 // Vocabulary
 // ---------------------------------------------------------------------------

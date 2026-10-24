@@ -13,17 +13,13 @@
  * something no device does.
  *
  * The reason is that a handshake is full of "and then wait": between
- * announcements, on each channel of a sweep, for a confirmation that never
- * comes. At the real intervals a dozen bind tests would take half a minute of
+ * announcements, and for a confirmation that never comes. At the real intervals a dozen bind tests would take half a minute of
  * genuine waiting, and a suite nobody runs because it is slow is a suite that
  * stops catching things.
  */
 
 /** 500 ms in the field. Between one announcement and the next. */
 #define HAP_ANNOUNCE_PERIOD_MS 20
-
-/** 1500 ms in the field. How long a sweep waits on one channel. */
-#define HAP_SWEEP_DWELL_MS 60
 
 /** 2000 ms in the field. How long a master waits to be confirmed. */
 #define HAP_CONFIRM_TIMEOUT_MS 100

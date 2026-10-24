@@ -30,7 +30,6 @@ namespace {
 constexpr uint8_t kControllerIndex = 1;
 constexpr uint8_t kThermometerIndex = 2;
 constexpr uint8_t kLampIndex = 4;
-constexpr uint8_t kChannel = 1;
 
 HAPNodeId idFor(uint8_t id) noexcept {
   const uint8_t mac[HAP_MAC_LEN] = {0x24, 0x6F, 0x28, 0x00, 0x00, id};
@@ -55,7 +54,7 @@ class TestNode {
  public:
   TestNode(uint8_t id, HAPLoopbackBus& bus) noexcept
       : id_(idFor(id)), transport_(id_, bus) {
-    transport_.begin(kChannel);
+    transport_.begin();
     transport_.onReceive(
         HAPITransport::Receiver::create<TestNode, &TestNode::onFrame>(*this));
   }
@@ -424,29 +423,6 @@ void testAUnicastToNobodyIsLostSilently() noexcept {
   CHECK(tree.bus.deliveredCount() == delivered);
 }
 
-void testTheWrongChannelIsDeafness() noexcept {
-  Tree tree;
-
-  // Not a dropped frame, not an error: the two simply cannot hear each other,
-  // and every symptom of it looks like a protocol bug from the far end.
-  tree.controller.transport().setChannel(kChannel + 5);
-
-  uint8_t payload[HAP_MAX_PAYLOAD_SIZE];
-  const size_t payloadSize = buildReport(payload, sizeof(payload), 21.5f);
-
-  HAPFrame report;
-  report.type = static_cast<uint8_t>(HAPMessage::Report);
-  report.set(HAPFlags::Upstream);
-  report.payload = payload;
-  report.payloadSize = static_cast<uint8_t>(payloadSize);
-
-  CHECK(tree.thermometer.originate(report));
-  CHECK(tree.bus.pumpAll() > 0);
-
-  CHECK(tree.controller.delivered().empty());
-  CHECK(tree.gateway.delivered().empty());
-}
-
 void testBroadcastReachesEveryoneInRange() noexcept {
   Tree tree;
   TestNode newcomer(9, tree.bus);
@@ -461,7 +437,7 @@ void testBroadcastReachesEveryoneInRange() noexcept {
   CHECK(newcomer.transport().broadcast(buffer, size));
   CHECK(tree.bus.pumpAll() > 0);
 
-  // Every node on the channel received it; each router then refused it, because
+  // Every node on the bus received it; each router then refused it, because
   // a stranger's frame is the binder's business and not the router's.
   CHECK(tree.gateway.transport().receivedCount() == 1);
   CHECK(tree.controller.transport().receivedCount() == 1);
@@ -520,7 +496,6 @@ void runTreeTests() noexcept {
   testTheOtherBranchIsUndisturbed();
   testAStrangerIsIgnored();
   testAUnicastToNobodyIsLostSilently();
-  testTheWrongChannelIsDeafness();
   testBroadcastReachesEveryoneInRange();
   testDepthFive();
 }

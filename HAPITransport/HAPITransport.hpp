@@ -55,26 +55,8 @@ class HAPITransport {
 
   virtual ~HAPITransport();
 
-  /**
-   * @brief Brings the radio up on one channel.
-   *
-   * Every node in a network must share it: ESP-NOW has no channel negotiation,
-   * and two boards one channel apart are simply deaf to each other.
-   */
-  virtual bool begin(uint8_t channel) = 0;
-
-  /** @brief The channel begin() was given, or 0 before it. */
-  virtual uint8_t channel() const noexcept = 0;
-
-  /**
-   * @brief Moves to another channel.
-   *
-   * Needed by exactly one thing: an unbound node has no idea which channel its
-   * future parent is listening on, so it sweeps while it announces. Everything
-   * else in the protocol assumes the network shares one channel and never
-   * touches this.
-   */
-  virtual bool setChannel(uint8_t channel) = 0;
+  /** @brief Brings the radio up. */
+  virtual bool begin() = 0;
 
   /** @brief This node's own identity. */
   virtual const HAPNodeId& localId() const noexcept = 0;

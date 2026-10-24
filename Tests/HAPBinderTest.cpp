@@ -36,7 +36,7 @@ class BindableNode {
         binder_(transport_, router_, node_) {
     node_.begin(type, capabilities, HAPName(name));
     node_.setReportIntervalSec(60);
-    transport_.begin(1);
+    transport_.begin();
     transport_.onReceive(HAPITransport::Receiver::create<BindableNode,
                                                         &BindableNode::onFrame>(
         *this));
@@ -356,35 +356,6 @@ void testTheAcceptGoesOnlyToWhoeverAnnounced() noexcept {
   CHECK(master.router().childById(bystander.id()) == nullptr);
 }
 
-void testTheSweepFindsAMasterOnAnotherChannel() noexcept {
-  HAPLoopbackBus bus;
-  BindableNode master = makeMaster(1, bus);
-  BindableNode slave(2, bus, HAPDeviceType::Sensor, HAPCaps::BatteryPowered,
-                     "Bedroom");
-  fillSensor(slave.node());
-
-  // The master is on channel 6; the slave came up on 1 and has no way to know.
-  CHECK(master.transport().setChannel(6));
-  CHECK(master.binder().listen());
-  CHECK(slave.binder().announce());
-
-  run(bus, master, slave, 4);
-  CHECK(!slave.sawBound());  // Deaf to each other, and nothing says so.
-
-  // The dwell expires, and the sweep tries the next channel most networks use.
-  HSystemUtils::sleep(HAP_SWEEP_DWELL_MS + 20);
-  run(bus, master, slave, 4);
-  CHECK(slave.transport().channel() == 6);
-
-  run(bus, master, slave, 8);
-
-  CHECK(slave.sawBound());
-  CHECK(master.router().childCount() == 1);
-
-  // And it stays where the acceptance told it the network lives.
-  CHECK(slave.transport().channel() == 6);
-}
-
 void testIndicesAreHandedOutInOrder() noexcept {
   HAPLoopbackBus bus;
   BindableNode master = makeMaster(1, bus);
@@ -441,6 +412,5 @@ void runBinderTests() noexcept {
   testAnnouncementsAreIgnoredWithNoWindowOpen();
   testAnAbandonedAcceptGivesTheIndexBack();
   testTheAcceptGoesOnlyToWhoeverAnnounced();
-  testTheSweepFindsAMasterOnAnotherChannel();
   testIndicesAreHandedOutInOrder();
 }

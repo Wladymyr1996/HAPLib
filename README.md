@@ -23,8 +23,7 @@ Gateway ──1── Heating controller ──2── Thermometer (bedroom, bat
   arrived from, so a climbing frame's source path is — at every node it passes —
   the downward path from *that* node to the origin.
 - **Binds with a press at each end.** A 60 s window on the master, an announcement
-  from the slave that sweeps channels to find it, and a link key that makes
-  everything after the handshake encrypted.
+  from the slave, and a link key.
 - **Reaches devices that are not there.** A battery node is awake for ~250 ms a
   minute; its parent queues what it cannot send and delivers it in the node's
   next listen window. A command is not lost, it is *late*.
@@ -57,7 +56,7 @@ Gateway ──1── Heating controller ──2── Thermometer (bedroom, bat
 | `HAPRouter` | parent, children, and the two forwarding rules — no radio, no timers |
 | `HAPITransport` | the radio seam: an in-memory bus on the host, no on-target backend yet |
 | `HAPNode` · `HAPInstance` · `HAPClasses` | this device: its instances, their ports, its descriptor revision |
-| `HAPBinder` · `HAPRandom` | both halves of the handshake, keys, and the channel sweep |
+| `HAPBinder` · `HAPRandom` | both halves of the handshake, and the link key |
 | `HAPStore` | a bind that survives a reboot: three config files and an RTC mirror |
 | `HAPReporter` · `HAPQueue` · `HAPListenWindow` | when to speak, what to hold, and when a sleeper is reachable |
 | `HAPModel` | what a root knows about everything beneath it, built only by listening |
@@ -83,7 +82,7 @@ node.begin(HAPDeviceType::Sensor, HAPCaps::BatteryPowered, "Bedroom");
 node.setReportIntervalSec(60);
 node.addInstance(HAPClassId::Thermometer, "Temp");
 
-stack.begin(HAP_DEFAULT_CHANNEL);
+stack.begin();
 
 for (;;) {
   radio.update();     // drains the Wi-Fi task's queue onto this one
@@ -135,12 +134,11 @@ byte on the wire — for exactly that reason.
 
 ### What makes them worth running
 
-- **The simulated radio is deliberately unhelpful.** `HAPLoopback` enforces what
-  ESP-NOW enforces: a unicast to a non-peer fails, two nodes on different
-  channels are simply deaf to each other, a frame encrypted with one key is not
-  received by a peer holding another, and nothing is delivered until the test
-  pumps the bus. Code that passes against a permissive simulator fails on the
-  first real board.
+- **The simulated radio is deliberately unhelpful.** `HAPLoopback` behaves like
+  an IP radio: a send that returns `true` only means the frame was queued, a
+  frame addressed to nobody is lost without a word, and nothing is delivered
+  until the test pumps the bus. Code that passes against a permissive simulator
+  fails on the first real board.
 - **The documents are executable.** Every worked example in `Protocol.md` and
   `Links.md` is rebuilt from the message structures and compared against the
   hexadecimal those documents print — then decoded back and checked field by

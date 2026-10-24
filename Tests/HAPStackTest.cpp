@@ -115,8 +115,8 @@ void testABoundPairReportsByItself() noexcept {
   slave.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
   master.useModel();
-  CHECK(master.stack().begin(1));
-  CHECK(slave.stack().begin(1));
+  CHECK(master.stack().begin());
+  CHECK(slave.stack().begin());
 
   CHECK(bindPair(bus, master, slave));
   CHECK(master.stack().router().childCount() == 1);
@@ -164,8 +164,8 @@ void testTheMasterFillsInWhatItDoesNotKnow() noexcept {
   slave.node().instanceAt(0)->publish(0, HValue(21.5f));
 
   master.useModel();
-  master.stack().begin(1);
-  slave.stack().begin(1);
+  master.stack().begin();
+  slave.stack().begin();
   CHECK(bindPair(bus, master, slave));
 
   Device* devices[] = {&master, &slave};
@@ -212,8 +212,8 @@ void testACommandReachesADriver() noexcept {
   lamp.node().addInstance(HAPClassId::Lamp, HAPName("Ceiling"));
 
   master.useModel();
-  master.stack().begin(1);
-  lamp.stack().begin(1);
+  master.stack().begin();
+  lamp.stack().begin();
   CHECK(bindPair(bus, master, lamp));
 
   static bool switched = false;
@@ -257,8 +257,8 @@ void testASleepingChildIsQueuedFor() noexcept {
   sensor.node().instanceAt(0)->publish(0, HValue(21.5f));
 
   master.useModel();
-  master.stack().begin(1);
-  sensor.stack().begin(1);
+  master.stack().begin();
+  sensor.stack().begin();
   CHECK(bindPair(bus, master, sensor));
 
   Device* devices[] = {&master, &sensor};
@@ -296,8 +296,8 @@ void testASecondCommandForASleepingChildIsRefused() noexcept {
                 "Bedroom", 60);
   sensor.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
-  master.stack().begin(1);
-  sensor.stack().begin(1);
+  master.stack().begin();
+  sensor.stack().begin();
   CHECK(bindPair(bus, master, sensor));
 
   HAPSetNameRequest rename;
@@ -324,8 +324,8 @@ void testABindSurvivesARestart() noexcept {
                   "Bedroom", 60);
     sensor.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
-    master.stack().begin(1);
-    sensor.stack().begin(1);
+    master.stack().begin();
+    sensor.stack().begin();
     CHECK(bindPair(bus, master, sensor));
     CHECK(sensor.stack().isBound());
   }
@@ -336,7 +336,7 @@ void testABindSurvivesARestart() noexcept {
                 "Bedroom", 60);
   sensor.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
-  CHECK(sensor.stack().begin(1));
+  CHECK(sensor.stack().begin());
 
   // Bound on the way up, with no handshake and nobody pressing anything.
   CHECK(sensor.stack().isBound());
@@ -363,8 +363,8 @@ void testAMasterThatRebootsCanStillHearItsChildren() noexcept {
     Device master(1, bus, HAPDeviceType::Controller, HAPCaps::CanBeMaster,
                   "Heating", 0);
 
-    master.stack().begin(1);
-    sensor.stack().begin(1);
+    master.stack().begin();
+    sensor.stack().begin();
     CHECK(bindPair(bus, master, sensor));
   }
 
@@ -379,7 +379,7 @@ void testAMasterThatRebootsCanStillHearItsChildren() noexcept {
                 "Heating", 0);
 
   master.useModel();
-  CHECK(master.stack().begin(1));
+  CHECK(master.stack().begin());
   CHECK(master.stack().isRoot());
 
   CHECK(master.stack().router().childCount() == 1);
@@ -435,8 +435,8 @@ void testANodeIsNotCalledOfflineForObeying() noexcept {
   sensor.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
   master.useModel();
-  master.stack().begin(1);
-  sensor.stack().begin(1);
+  master.stack().begin();
+  sensor.stack().begin();
   CHECK(bindPair(bus, master, sensor));
 
   Device* devices[] = {&master, &sensor};
@@ -484,9 +484,9 @@ void testAResetDeviceCanRejoinTheParentThatStillListsIt() noexcept {
   sensor.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
   master.useModel();
-  master.stack().begin(1);
-  first.stack().begin(1);
-  sensor.stack().begin(1);
+  master.stack().begin();
+  first.stack().begin();
+  sensor.stack().begin();
 
   // Two children, so that "the parent keeps its others" is a claim with
   // something behind it.
@@ -557,9 +557,9 @@ void testARebootedMasterStillKnowsItsGrandchildren() noexcept {
     Device root(1, bus, HAPDeviceType::Gateway, HAPCaps::CanBeMaster, "Gateway",
                 0);
     root.useModel();
-    root.stack().begin(1);
-    middle.stack().begin(1);
-    leaf.stack().begin(1);
+    root.stack().begin();
+    middle.stack().begin();
+    leaf.stack().begin();
 
     // The BOTTOM first, for two reasons. It is the order that found this on
     // three boards; and one process shares one HAPStore, so whichever node
@@ -589,7 +589,7 @@ void testARebootedMasterStillKnowsItsGrandchildren() noexcept {
 
   Device root(1, bus, HAPDeviceType::Gateway, HAPCaps::CanBeMaster, "Gateway", 0);
   root.useModel();
-  CHECK(root.stack().begin(1));
+  CHECK(root.stack().begin());
   CHECK(root.stack().isRoot());
 
   // The grandchild is back, by name rather than by inference, before a single
@@ -617,8 +617,8 @@ void testAFactoryResetFreesADevice() noexcept {
                 "Bedroom", 60);
   sensor.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
-  master.stack().begin(1);
-  sensor.stack().begin(1);
+  master.stack().begin();
+  sensor.stack().begin();
   CHECK(bindPair(bus, master, sensor));
 
   CHECK(sensor.stack().factoryReset());
@@ -650,9 +650,9 @@ void testAThreeNodeChain() noexcept {
   leaf.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
   root.useModel();
-  root.stack().begin(1);
-  middle.stack().begin(1);
-  leaf.stack().begin(1);
+  root.stack().begin();
+  middle.stack().begin();
+  leaf.stack().begin();
 
   CHECK(bindPair(bus, root, middle));
   CHECK(bindPair(bus, middle, leaf));
@@ -721,9 +721,9 @@ void testAMiddleNodeHearsItsChildsNewInterval() noexcept {
 
   root.useModel();
   middle.useModel();
-  root.stack().begin(1);
-  middle.stack().begin(1);
-  leaf.stack().begin(1);
+  root.stack().begin();
+  middle.stack().begin();
+  leaf.stack().begin();
 
   IntervalSeen atRoot;
   IntervalSeen atMiddle;
@@ -782,8 +782,8 @@ void testAMasterThatMissedTheNoticeLearnsTheIntervalFromADescribe() noexcept {
   leaf.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
   root.useModel();
-  root.stack().begin(1);
-  leaf.stack().begin(1);
+  root.stack().begin();
+  leaf.stack().begin();
 
   IntervalSeen seen;
   root.stack().onReportInterval(
@@ -829,8 +829,8 @@ void testAChildForgottenWhileOffLeavesNoOrphan() noexcept {
     leaf.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
     root.useModel();
-    root.stack().begin(1);
-    leaf.stack().begin(1);
+    root.stack().begin();
+    leaf.stack().begin();
     CHECK(bindPair(bus, root, leaf));
 
     Device* devices[] = {&root, &leaf};
@@ -852,7 +852,7 @@ void testAChildForgottenWhileOffLeavesNoOrphan() noexcept {
 
   Device root(1, bus, HAPDeviceType::Gateway, HAPCaps::CanBeMaster, "Gateway", 0);
   root.useModel();
-  CHECK(root.stack().begin(1));
+  CHECK(root.stack().begin());
   CHECK(root.model().find(pathOf(1)) == nullptr);
   CHECK(root.model().size() == 0);
 
@@ -883,9 +883,9 @@ void testAControllerAdoptedLastStillReportsItsChildren() noexcept {
   leaf.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
   root.useModel();
-  root.stack().begin(1);
-  middle.stack().begin(1);
-  leaf.stack().begin(1);
+  root.stack().begin();
+  middle.stack().begin();
+  leaf.stack().begin();
 
   // THE BOTTOM FIRST, which is the whole point of this test.
   CHECK(bindPair(bus, middle, leaf));
@@ -920,9 +920,9 @@ void testALinkAtTheCommonAncestor() noexcept {
   leaf.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
   root.useModel();
-  root.stack().begin(1);
-  middle.stack().begin(1);
-  leaf.stack().begin(1);
+  root.stack().begin();
+  middle.stack().begin();
+  leaf.stack().begin();
 
   CHECK(bindPair(bus, root, middle));
   CHECK(bindPair(bus, middle, leaf));
@@ -977,8 +977,8 @@ void testASleepingNodeMaySleep() noexcept {
                 "Bedroom", 1);
   sensor.node().addInstance(HAPClassId::Thermometer, HAPName("Temp"));
 
-  master.stack().begin(1);
-  sensor.stack().begin(1);
+  master.stack().begin();
+  sensor.stack().begin();
 
   // Mid-handshake is not a moment to sleep through.
   CHECK(sensor.stack().binder().announce());

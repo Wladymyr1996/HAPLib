@@ -386,9 +386,9 @@ void testTheLoopSurvivesTheRootGoingAway() noexcept {
   HAPLoopback controllerRadio(controllerId, bus);
   HAPLoopback thermometerRadio(thermometerId, bus);
 
-  gatewayRadio.begin(1);
-  controllerRadio.begin(1);
-  thermometerRadio.begin(1);
+  gatewayRadio.begin();
+  controllerRadio.begin();
+  thermometerRadio.begin();
 
   HAPNode controllerNode;
   fillController(controllerNode);
